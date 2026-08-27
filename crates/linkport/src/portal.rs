@@ -12,8 +12,9 @@ use axum::Router;
 use rust_embed::RustEmbed;
 use std::net::SocketAddr;
 
+// Resolved relative to this crate's manifest (crates/linkport/).
 #[derive(RustEmbed)]
-#[folder = "$CARGO_MANIFEST_DIR/../../frontend/out"]
+#[folder = "../../frontend/out"]
 struct Assets;
 
 #[derive(Clone)]

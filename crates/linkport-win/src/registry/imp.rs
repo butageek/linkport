@@ -19,7 +19,7 @@ const PROG_ID: &str = "Linkport.URL";
 
 pub fn register(exe: &Path) -> Result<(), String> {
     let exe = exe.display().to_string();
-    let run = || -> winreg::error::Result<()> {
+    let run = || -> std::io::Result<()> {
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
 
         // 1. Protocol ProgId: HKCU\Software\Classes\Linkport.URL

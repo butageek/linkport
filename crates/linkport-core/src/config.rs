@@ -56,6 +56,7 @@ pub struct Browser {
     pub exe: String,
     /// Argument template; `{url}` is substituted with the captured URL.
     /// If no argument contains `{url}`, the URL is appended.
+    #[serde(default)]
     pub args: Vec<String>,
     /// Alternative argument template used when a rule requests incognito mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]

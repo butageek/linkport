@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 pub fn config_dir() -> PathBuf {
     dirs::config_dir()
-        .unwrap_or_else(|| std::env::temp_dir())
+        .unwrap_or_else(std::env::temp_dir)
         .join("linkport")
 }
 
