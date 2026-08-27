@@ -3,112 +3,109 @@
 **Linkport** is a rule-based browser router for Windows with a web portal for
 managing the rules. Register it as your default browser and every link you
 click — from email, Slack, PDFs, anywhere — is routed to the right browser or
-browser profile based on rules you define.
+browser profile based on rules you define, with zero configuration windows
+getting in your way.
 
-```
-link clicked
-  → linkport-open.exe "<url>"   (GUI subsystem: no console flash, reads config,
-  │                              matches rules, spawns browser, exits)
-  → event appended to history     (best-effort, includes errors)
-linkport serve                    (daemon: web portal + API on 127.0.0.1)
-```
-
-Two binaries ship from one crate: `linkport.exe` (console CLI + portal
-daemon) and `linkport-open.exe` (the OS-facing URL handler). Keep them in the
-same directory; `linkport register` points the registry at the handler.
+> Working MVP: Windows 10/11. Development happens in WSL; see
+> [AGENTS.md](AGENTS.md) for the full environment, build, deploy and
+> debugging playbook (written for humans *and* AI coding agents).
 
 ## How it works
 
-- **Single binary.** `linkport open` is the OS-facing hot path — it never
-  depends on the daemon, so links keep working even when the portal is down.
-  `linkport serve` runs the management portal (axum) with the Next.js UI
-  embedded in the binary.
-- **Rules are ordered; first match wins.** Each rule can combine a host glob
-  (`*.mycompany.com`), a full-URL regex (`docs\.google\.com`), and a scheme
-  matcher — all specified matchers must match (AND). Host globs are
-  cookie-style: `*.example.com` matches `example.com` **and** its subdomains.
-  Targets are browser ids (with optional incognito mode) or `block` to
-  swallow the URL.
-- **Web portal.** Dashboard with a live "try a URL" dry-run trace and recent
-  link history, a rules editor with drag-reorder, a browsers page with
-  registry-based auto-detection, and one-click Windows registration.
-- **Localhost-only + token auth.** The portal binds 127.0.0.1, validates the
-  Host header (DNS-rebinding protection) and requires a bearer token created
-  on first run.
+```
+link clicked (email, Slack, PDF, terminal…)
+  → linkport-open.exe "<url>"   (GUI subsystem: no console flash; reads
+  │                              config, matches rules, spawns browser, exits)
+  → event appended to history    (best-effort, includes errors)
+linkport-open.exe serve         (daemon: portal + tray, started at login)
+  ├─ axum API + SPA on 127.0.0.1:14200 (token-gated)
+  └─ system tray icon            (left click: portal; menu: toggles, quit)
+```
 
-## Workspace layout
+Two binaries ship from one crate and must sit side by side:
+
+- **`linkport.exe`** — console CLI: `serve`, `register`, `unregister`, `open`
+  (console hot path for debugging), `test`, `browsers`, `init`, `portal-url`.
+- **`linkport-open.exe`** — windowless entry points: `<url>` as the OS-facing
+  handler registered with Windows, and `serve` used by the login auto-start
+  entry. Built with the Windows GUI subsystem so nothing ever flashes.
+
+### Features
+
+- **Rule engine** — ordered rules, first match wins. Each rule combines
+  matchers with AND: host glob, full-URL regex, scheme. Host globs are
+  cookie-style: `*.example.com` matches `example.com` **and** subdomains.
+  Targets are browser ids (optionally incognito/private) or `block`.
+- **Web portal** (Next.js 15 + TypeScript + shadcn/ui, embedded in the
+  binary): dashboard with live dry-run trace + link history and one-click
+  "create rule from this host", rules editor with reorder/toggles, browsers
+  page with registry auto-detection, settings with one-click registration.
+- **System tray** — version, portal URL, **Start Linkport when I sign in**
+  (native `HKCU\…\Run` key, no Task Scheduler), **Pause routing** (all links
+  → default browser until unpaused), Quit (graceful shutdown).
+- **First-run friendly** — on the very first daemon start ever, the portal
+  opens by itself in a real browser; afterwards the tray icon is the way in.
+  The auth token is transparent (stored per-browser via localStorage).
+- **Localhost-only + token auth** — the portal binds 127.0.0.1, validates the
+  Host header (DNS-rebinding protection) and requires a bearer token.
+
+## Repository layout
 
 ```
 crates/
-├── linkport-core/   # config model, rule engine, launcher, event log (pure, tested)
-├── linkport-win/    # default-browser registration + browser discovery (Windows;
-│                    #  stubs elsewhere so the workspace builds on any host)
-└── linkport/        # the binary: CLI (open/serve/register/test/…) + axum portal
-frontend/            # Next.js 15 + TypeScript + shadcn/ui (static export, rust-embed)
-scripts/build.sh     # full release build for Windows
+├── linkport-core/   # pure & unit-tested: config model, rule engine,
+│                    # browser launcher ({url} arg templates), JSONL event log
+├── linkport-win/    # Windows registry integration (stubbed elsewhere):
+│                    # default-browser registration, browser discovery,
+│                    # login auto-start (Run key)
+└── linkport/        # lib (open/portal/api/tray) + the two binaries above
+frontend/            # Next.js 15 static export + shadcn/ui (Tailwind v4),
+                    # embedded via rust-embed and served by axum
+resources/           # tray icon assets (see scripts/gen_icon.py)
+scripts/             # build.sh (full Windows release), gen_icon.py
 ```
 
-## Development (from WSL or Linux)
+State lives in `%APPDATA%\linkport` (`~/.config/linkport` on Linux):
+`config.toml` (rules & browsers), `token` (portal auth), `events.jsonl`
+(history), `paused.flag` (pause toggle).
 
-Requirements: rustup (stable), Node 18.18+ / npm, and the frontend deps.
+## Development
+
+Requirements: rustup stable, Node 18.18+/npm, and for the Windows binary
+`mingw-w64` (`sudo apt install mingw-w64`).
 
 ```bash
-# terminal 1 — portal daemon (creates default config + token on first run)
+# terminal 1 — portal daemon
 cargo run -p linkport -- serve
 
-# terminal 2 — frontend dev server with hot reload
-cd frontend
-npm install
-npm run dev          # http://localhost:3000, proxies API calls to :14200
+# terminal 2 — frontend with hot reload (proxies API to :14200)
+cd frontend && npm install && npm run dev   # http://localhost:3000
 ```
-
-Grab the portal URL (with token) via:
 
 ```bash
-cargo run -p linkport -- portal-url
+cargo test --workspace                        # unit tests (pure core)
+cargo check --target x86_64-pc-windows-gnu --workspace --all-targets
+./scripts/build.sh                            # frontend + release linkport*.exe
 ```
-
-Run the test suite and checks:
-
-```bash
-cargo test --workspace
-cargo check --target x86_64-pc-windows-gnu   # validates the Windows-only code paths
-```
-
-## Building the Windows binary
-
-From WSL (cross-compilation, no Visual Studio needed):
-
-```bash
-rustup target add x86_64-pc-windows-gnu
-sudo apt install mingw-w64          # only needed for linking
-./scripts/build.sh                  # builds frontend, then linkport.exe
-```
-
-Or build natively on Windows with the MSVC toolchain (the repo lives at
-`\\wsl.localhost\<distro>\home\<user>\repo\linkport` — cloning it to the
-Windows filesystem is recommended for native builds).
 
 ## Installing as the default browser (Windows)
 
-1. Copy **both** `linkport.exe` and `linkport-open.exe` somewhere permanent
-   (e.g. `C:\Tools\Linkport`, side by side).
+1. Copy **both** `linkport.exe` and `linkport-open.exe` somewhere permanent,
+   side by side (e.g. `C:\Tools\Linkport`).
 2. Run `linkport register`.
-3. Open **Settings → Apps → Default apps → Linkport** and set it as the
-   default for **HTTP** and **HTTPS**. (Windows 10/11 deliberately prevents
-   apps from setting this programmatically.)
-4. Start the portal with `linkport serve` (or `linkport serve --open` to
-   also open it in your browser) and configure browsers and rules at the
-   printed tokenized URL. The token is remembered per browser, so plain
-   `http://127.0.0.1:14200` works afterwards.
+3. **Settings → Apps → Default apps → Linkport** → set default for HTTP and
+   HTTPS. (Windows deliberately prevents apps from doing this
+   programmatically.)
+4. Start `linkport serve` once (or `linkport-open.exe serve` windowless) and
+   enable **Start Linkport when I sign in** in the tray menu.
 
-To undo: **Settings → Default apps** pick your old browser, then
-`linkport unregister`.
+From then on: reboot → tray appears, links route by your rules, and the
+portal is one click (or one reboot on first run) away.
 
 ## Configuration
 
-Stored at `%APPDATA%\linkport\config.toml` (created on first run). The portal
-edits this file atomically; you can also hand-edit it:
+`%APPDATA%\linkport\config.toml` — edited atomically by the portal or by
+hand:
 
 ```toml
 version = 1
@@ -123,16 +120,6 @@ exe = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
 args = ["--profile-directory=Work", "{url}"]
 incognito_args = ["--incognito", "{url}"]
 
-[browsers.firefox]
-display_name = "Firefox"
-exe = 'C:/Program Files/Mozilla Firefox/firefox.exe'
-args = ["-new-window", "{url}"]
-
-[[rules]]
-name = "company links"
-host_glob = "*.mycompany.com"
-target = "work-chrome"
-
 [[rules]]
 name = "google docs to work"
 url_regex = "docs\\.google\\.com"
@@ -144,13 +131,21 @@ host_glob = "*.tracker.io"
 target = "block"
 ```
 
+## Debugging
+
+- `linkport test "<url>"` — dry-run printing the full decision trace.
+- `%APPDATA%\linkport\events.jsonl` — every opened link with its outcome and
+  any launch errors (also visible on the Dashboard).
+- Dashboard → "Try a URL" — same trace, in the portal.
+
 ## Roadmap
 
-- [ ] Native picker dialog for ambiguous links (websteer-style `ambiguous` flag)
+- [ ] Native picker dialog for ambiguous links (websteer-style)
 - [ ] "Browser already running" heuristic (BrowserPicker-style)
 - [ ] URL shortener expansion in the trace view
-- [ ] Linux support (`linkport-linux`: `.desktop` + `xdg-settings`) — the core
-      is already platform-neutral
+- [ ] Friendly names for detected browsers (`Firefox-308046B0AF4A39CB` → `Firefox`)
+- [ ] Installer + code signing
+- [ ] Linux support (`.desktop` + `xdg-settings`) — the core is portable
 
 ## License
 
