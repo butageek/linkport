@@ -26,6 +26,7 @@ pub struct AppState {
 pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
     let cfg = paths::load_or_default();
     let port = port_override.unwrap_or(cfg.portal.port);
+    let token_existed = paths::token_path().exists();
     let token = paths::ensure_token()?;
     let state = AppState { token, port };
 
@@ -83,6 +84,14 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
         #[cfg(not(windows))]
         let _ = quit_tx;
 
+        // First run ever (fresh install + auto-start): the token has just been
+        // minted and the user has no other way to discover it — pop the portal
+        // once so setup can begin.
+        #[cfg(windows)]
+        if !token_existed {
+            open_portal_url(&state);
+        }
+
         axum::serve(listener, app)
             .with_graceful_shutdown(async move {
                 let mut rx = quit_rx;
@@ -97,13 +106,46 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
     })
 }
 
-/// Open the tokenized portal URL in the system browser (used by
-/// `serve --open`, the tray left click and the tray menu).
+/// The tokenized portal URL (opens straight into the dashboard, no gate).
+pub fn portal_url_string(state: &AppState) -> String {
+    format!("http://127.0.0.1:{}/?token={}", state.port, state.token)
+}
+
+/// Open the portal in a real browser — bypassing Linkport's own routing, so
+/// it works even on a fresh install where Linkport is the system default
+/// browser but no rules or browsers are configured yet.
+/// Resolution order: configured default browser → any configured browser →
+/// first registry-discovered browser → system handler.
 pub fn open_portal_url(state: &AppState) {
-    open_in_system_browser(&format!(
-        "http://127.0.0.1:{}/?token={}",
-        state.port, state.token
-    ));
+    let url = portal_url_string(state);
+    if let Some(browser) = portal_browser() {
+        let launched = linkport_core::launcher::launch(&browser, &url, false).is_ok();
+        if launched {
+            return;
+        }
+    }
+    open_in_system_browser(&url);
+}
+
+fn portal_browser() -> Option<linkport_core::Browser> {
+    let cfg = paths::load_or_default();
+    if let Some(id) = &cfg.default_browser {
+        if let Some(b) = cfg.browsers.get(id) {
+            return Some(b.clone());
+        }
+    }
+    if let Some((_, b)) = cfg.browsers.iter().next() {
+        return Some(b.clone());
+    }
+    linkport_win::discover_browsers().first().map(|d| {
+        let (exe, args) = linkport_core::launcher::parse_command_template(&d.command);
+        linkport_core::Browser {
+            display_name: d.name.clone(),
+            exe,
+            args,
+            incognito_args: None,
+        }
+    })
 }
 
 /// Auth middleware for `/api/*` routes.

@@ -65,6 +65,7 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
 
     // Build the menu. enabled=false items are informational.
     let open = MenuItem::with_id("open", "Open Linkport portal", true, None);
+    let copy_url = MenuItem::with_id("copy", "Copy portal URL", true, None);
     let autostart = CheckMenuItem::with_id(
         "autostart",
         "Start Linkport when I sign in",
@@ -98,6 +99,7 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
 
     let menu = Menu::new();
     menu.append(&open)?;
+    menu.append(&copy_url)?;
     menu.append(&sep1)?;
     menu.append(&autostart)?;
     menu.append(&pause)?;
@@ -126,6 +128,14 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
         while let Ok(ev) = MenuEvent::receiver().recv() {
             match ev.id().as_ref() {
                 "open" => crate::portal::open_portal_url(&menu_state),
+                "copy" => {
+                    let url = crate::portal::portal_url_string(&menu_state);
+                    if set_clipboard_text(&url) {
+                        eprintln!("linkport: portal URL copied to clipboard");
+                    } else {
+                        eprintln!("linkport: failed to copy portal URL");
+                    }
+                }
                 "autostart" => post_cmd(CMD_TOGGLE_AUTOSTART),
                 "pause" => post_cmd(CMD_TOGGLE_PAUSE),
                 "quit" => {
@@ -218,5 +228,39 @@ fn post_quit() {
         unsafe {
             PostThreadMessageW(tid, WM_QUIT, 0, 0);
         }
+    }
+}
+
+/// Put UTF-16 text on the clipboard via Win32 (no extra crates).
+fn set_clipboard_text(text: &str) -> bool {
+    use windows_sys::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    };
+    use windows_sys::Win32::System::Memory::{
+        GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE,
+    };
+    const CF_UNICODETEXT: u32 = 13;
+
+    unsafe {
+        if OpenClipboard(std::ptr::null_mut()) == 0 {
+            return false;
+        }
+        let mut ok = false;
+        let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+        let hglobal = GlobalAlloc(GMEM_MOVEABLE, wide.len() * 2);
+        if hglobal != std::ptr::null_mut() {
+            let dst = GlobalLock(hglobal) as *mut u16;
+            if !dst.is_null() {
+                std::ptr::copy_nonoverlapping(wide.as_ptr(), dst, wide.len());
+                GlobalUnlock(hglobal);
+                if EmptyClipboard() != 0
+                    && SetClipboardData(CF_UNICODETEXT, hglobal) != std::ptr::null_mut()
+                {
+                    ok = true; // system owns hglobal on success
+                }
+            }
+        }
+        CloseClipboard();
+        ok
     }
 }

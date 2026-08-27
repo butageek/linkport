@@ -122,8 +122,11 @@ function TokenGate({ onUnlock }: { onUnlock: () => void }) {
           Linkport portal
         </div>
         <p className="text-sm text-muted-foreground">
-          Paste the token from <code className="rounded bg-muted px-1">linkport portal-url</code>{" "}
-          to unlock the portal.
+          This browser hasn’t been unlocked yet. Easiest: click the Linkport tray
+          icon (or right-click → <strong>Open Linkport portal</strong>). You can also
+          right-click → <strong>Copy portal URL</strong> and paste it above, or run{" "}
+          <code className="rounded bg-muted px-1">linkport portal-url</code> in a
+          terminal.
         </p>
         <Input
           value={token}
