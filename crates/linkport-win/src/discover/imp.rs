@@ -39,5 +39,8 @@ pub fn discover_browsers() -> Vec<DiscoveredBrowser> {
             out.push(DiscoveredBrowser { name, command });
         }
     }
+    // HKLM, its WOW6432Node mirror and HKCU can all register the same browser.
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|d| seen.insert((d.name.clone(), d.command.clone())));
     out
 }
