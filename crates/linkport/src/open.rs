@@ -10,6 +10,40 @@ use linkport_core::{config, launcher};
 /// an `error` field when routing or launching failed.
 pub fn open_url(url: &str) -> Result<()> {
     let cfg = paths::load_or_default();
+
+    // Routing paused: send everything to the configured default browser.
+    if paths::is_paused() {
+        let target = cfg
+            .default_browser
+            .clone()
+            .filter(|t| cfg.browsers.contains_key(t));
+        return match target {
+            Some(t) => {
+                let result = launch_browser(&cfg, &t, url, false);
+                let error = result.as_ref().err().map(|e| e.to_string());
+                let _ = event::append(
+                    &paths::events_path(),
+                    &event::Event {
+                        error,
+                        ..event::Event::new(url, None, Outcome::Default { target: t })
+                    },
+                );
+                result
+            }
+            None => {
+                let err = anyhow::anyhow!("routing is paused but no default browser is configured");
+                let _ = event::append(
+                    &paths::events_path(),
+                    &event::Event {
+                        error: Some(err.to_string()),
+                        ..event::Event::new(url, None, Outcome::NoMatch)
+                    },
+                );
+                Err(err)
+            }
+        };
+    }
+
     let decision = engine::evaluate(&cfg, url);
     let outcome = decision.outcome.clone();
 

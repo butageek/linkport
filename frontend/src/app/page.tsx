@@ -80,6 +80,20 @@ function StatusCard({ status }: { status: Status | null }) {
             <Row label="Browsers / rules">
               {status.browsers_count} / {status.rules_count}
             </Row>
+            <Row label="Routing">
+              {status.paused ? (
+                <Badge variant="secondary">paused — all links to default browser</Badge>
+              ) : (
+                <Badge>active</Badge>
+              )}
+            </Row>
+            <Row label="Start at login">
+              {status.autostart ? (
+                <Badge>enabled</Badge>
+              ) : (
+                <Badge variant="outline">disabled</Badge>
+              )}
+            </Row>
             <Row label="Default browser">
               {status.default_browser ?? <span className="text-muted-foreground">none</span>}
             </Row>

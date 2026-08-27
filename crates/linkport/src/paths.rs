@@ -23,6 +23,33 @@ pub fn token_path() -> PathBuf {
     config_dir().join("token")
 }
 
+/// Pause-routing flag: a plain file whose presence puts the hot path into
+/// "send everything to the default browser" mode. Checked by every open,
+/// so toggling takes effect instantly — even mid-portal-restart.
+pub fn pause_flag_path() -> PathBuf {
+    config_dir().join("paused.flag")
+}
+
+pub fn is_paused() -> bool {
+    pause_flag_path().exists()
+}
+
+pub fn set_paused(paused: bool) -> std::io::Result<()> {
+    if paused {
+        if let Some(parent) = pause_flag_path().parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::File::create(pause_flag_path())?;
+    } else {
+        match std::fs::remove_file(pause_flag_path()) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
+}
+
 pub fn load_or_default() -> Config {
     config::load(&config_path()).unwrap_or_default()
 }

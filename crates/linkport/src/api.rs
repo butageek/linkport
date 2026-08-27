@@ -20,6 +20,8 @@ pub async fn status(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "registered": linkport_win::is_registered(),
+        "paused": paths::is_paused(),
+        "autostart": linkport_win::autostart::is_enabled(),
         "config_path": paths::config_path().display().to_string(),
         "portal_url": format!("http://127.0.0.1:{}/?token={}", state.port, state.token),
         "default_browser": cfg.default_browser,

@@ -60,6 +60,8 @@ export interface EventItem {
 export interface Status {
   version: string;
   registered: boolean;
+  paused: boolean;
+  autostart: boolean;
   config_path: string;
   portal_url: string;
   default_browser?: string | null;

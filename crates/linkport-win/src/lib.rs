@@ -4,9 +4,11 @@
 //! On non-Windows platforms these operations become no-op stubs so the
 //! workspace still compiles for development.
 
+pub mod autostart;
 mod discover;
 mod registry;
 
+pub use autostart::{current_command, disable, enable, is_enabled};
 pub use discover::{discover_browsers, DiscoveredBrowser};
 pub use registry::{is_registered, register, unregister};
 
