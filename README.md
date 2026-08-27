@@ -7,10 +7,15 @@ browser profile based on rules you define.
 
 ```
 link clicked
-  → linkport.exe open "<url>"     (hot path: reads config, matches rules, spawns browser)
-  → event appended to history     (best-effort)
+  → linkport-open.exe "<url>"   (GUI subsystem: no console flash, reads config,
+  │                              matches rules, spawns browser, exits)
+  → event appended to history     (best-effort, includes errors)
 linkport serve                    (daemon: web portal + API on 127.0.0.1)
 ```
+
+Two binaries ship from one crate: `linkport.exe` (console CLI + portal
+daemon) and `linkport-open.exe` (the OS-facing URL handler). Keep them in the
+same directory; `linkport register` points the registry at the handler.
 
 ## How it works
 
@@ -20,8 +25,10 @@ linkport serve                    (daemon: web portal + API on 127.0.0.1)
   embedded in the binary.
 - **Rules are ordered; first match wins.** Each rule can combine a host glob
   (`*.mycompany.com`), a full-URL regex (`docs\.google\.com`), and a scheme
-  matcher — all specified matchers must match (AND). Targets are browser ids
-  (with optional incognito mode) or `block` to swallow the URL.
+  matcher — all specified matchers must match (AND). Host globs are
+  cookie-style: `*.example.com` matches `example.com` **and** its subdomains.
+  Targets are browser ids (with optional incognito mode) or `block` to
+  swallow the URL.
 - **Web portal.** Dashboard with a live "try a URL" dry-run trace and recent
   link history, a rules editor with drag-reorder, a browsers page with
   registry-based auto-detection, and one-click Windows registration.
@@ -84,12 +91,16 @@ Windows filesystem is recommended for native builds).
 
 ## Installing as the default browser (Windows)
 
-1. Copy `linkport.exe` somewhere permanent (e.g. `C:\Tools\Linkport`).
+1. Copy **both** `linkport.exe` and `linkport-open.exe` somewhere permanent
+   (e.g. `C:\Tools\Linkport`, side by side).
 2. Run `linkport register`.
 3. Open **Settings → Apps → Default apps → Linkport** and set it as the
    default for **HTTP** and **HTTPS**. (Windows 10/11 deliberately prevents
    apps from setting this programmatically.)
-4. Configure browsers and rules at the portal URL from `linkport portal-url`.
+4. Start the portal with `linkport serve` (or `linkport serve --open` to
+   also open it in your browser) and configure browsers and rules at the
+   printed tokenized URL. The token is remembered per browser, so plain
+   `http://127.0.0.1:14200` works afterwards.
 
 To undo: **Settings → Default apps** pick your old browser, then
 `linkport unregister`.

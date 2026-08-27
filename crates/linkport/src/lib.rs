@@ -5,6 +5,8 @@ pub mod api;
 pub mod open;
 pub mod paths;
 pub mod portal;
+#[cfg(windows)]
+pub mod tray;
 
 /// Build the shell open command registered with Windows, preferring the
 /// console-less `linkport-open` handler when it sits next to this binary.

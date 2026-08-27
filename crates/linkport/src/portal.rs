@@ -72,14 +72,38 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
         );
 
         if open_browser {
-            open_in_system_browser(&format!("http://127.0.0.1:{port}/?token={}", state.token));
+            open_portal_url(&state);
         }
 
+        // System tray presence (Windows). Quit in the tray menu sends on this
+        // watch channel, gracefully shutting the HTTP server down.
+        let (quit_tx, quit_rx) = tokio::sync::watch::channel(false);
+        #[cfg(windows)]
+        let tray = crate::tray::spawn(state.clone(), quit_tx.clone());
+        #[cfg(not(windows))]
+        let _ = quit_tx;
+
         axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let mut rx = quit_rx;
+                let _ = rx.changed().await;
+            })
             .await
             .context("portal server error")?;
+
+        #[cfg(windows)]
+        tray.stop();
         anyhow::Ok(())
     })
+}
+
+/// Open the tokenized portal URL in the system browser (used by
+/// `serve --open`, the tray left click and the tray menu).
+pub fn open_portal_url(state: &AppState) {
+    open_in_system_browser(&format!(
+        "http://127.0.0.1:{}/?token={}",
+        state.port, state.token
+    ));
 }
 
 /// Auth middleware for `/api/*` routes.
