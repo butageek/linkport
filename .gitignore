@@ -1,0 +1,12 @@
+# Rust
+/target
+**/target
+
+# Node
+node_modules/
+**/.next/
+frontend/out/
+
+# Misc
+*.log
+.DS_Store
