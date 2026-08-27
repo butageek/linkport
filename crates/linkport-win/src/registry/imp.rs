@@ -8,7 +8,8 @@
 //! 2. The user picks "Linkport" in
 //!    Settings > Apps > Default apps > Linkport > set default for HTTP/HTTPS.
 //!
-//! After that, Windows launches `linkport.exe open "<url>"` for every link.
+//! After that, Windows invokes the registered shell open command (the
+//! console-less `linkport-open.exe` handler) for every clicked link.
 
 use std::path::Path;
 use winreg::enums::*;
@@ -17,23 +18,25 @@ use winreg::RegKey;
 const APP_REG_PATH: &str = r"Software\Clients\StartMenuInternet\Linkport";
 const PROG_ID: &str = "Linkport.URL";
 
-pub fn register(exe: &Path) -> Result<(), String> {
-    let exe = exe.display().to_string();
+pub fn register(exe: &Path, open_command: &str) -> Result<(), String> {
+    let _exe = exe.display().to_string();
     let run = || -> std::io::Result<()> {
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
 
-        // 1. Protocol ProgId: HKCU\Software\Classes\Linkport.URL
+        // 1. Protocol ProgId: HKCU\Software\Classes\Linkport.URL.
+        //    The shell open command points at the console-less handler
+        //    (linkport-open.exe) so no console window flashes on link clicks.
         let (prog, _) = hkcu.create_subkey(format!(r"Software\Classes\{PROG_ID}"))?;
         prog.set_value("URL Protocol", &"")?;
         let (cmd, _) =
             hkcu.create_subkey(format!(r"Software\Classes\{PROG_ID}\shell\open\command"))?;
-        cmd.set_value("", &format!("\"{exe}\" open \"%1\""))?;
+        cmd.set_value("", &open_command)?;
 
         // 2. StartMenuInternet client with URL capabilities.
         let (client, _) = hkcu.create_subkey(APP_REG_PATH)?;
         client.set_value("", &"Linkport")?;
         let (client_cmd, _) = hkcu.create_subkey(format!(r"{APP_REG_PATH}\shell\open\command"))?;
-        client_cmd.set_value("", &format!("\"{exe}\" open \"%1\""))?;
+        client_cmd.set_value("", &open_command)?;
         let (caps, _) = hkcu.create_subkey(format!(r"{APP_REG_PATH}\Capabilities"))?;
         caps.set_value("ApplicationName", &"Linkport")?;
         caps.set_value(

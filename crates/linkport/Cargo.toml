@@ -8,7 +8,11 @@ authors.workspace = true
 
 [[bin]]
 name = "linkport"
-path = "src/main.rs"
+path = "src/bin/linkport.rs"
+
+[[bin]]
+name = "linkport-open"
+path = "src/bin/linkport_open.rs"
 
 [dependencies]
 linkport-core = { workspace = true }

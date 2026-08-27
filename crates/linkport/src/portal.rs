@@ -23,7 +23,7 @@ pub struct AppState {
     pub port: u16,
 }
 
-pub fn serve(port_override: Option<u16>) -> Result<()> {
+pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
     let cfg = paths::load_or_default();
     let port = port_override.unwrap_or(cfg.portal.port);
     let token = paths::ensure_token()?;
@@ -70,6 +70,10 @@ pub fn serve(port_override: Option<u16>) -> Result<()> {
             "Manage your rules at http://127.0.0.1:{port}/?token={}",
             state.token
         );
+
+        if open_browser {
+            open_in_system_browser(&format!("http://127.0.0.1:{port}/?token={}", state.token));
+        }
 
         axum::serve(listener, app)
             .await
@@ -126,6 +130,24 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
         return false;
     }
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+/// Open a URL with the system handler (default browser) without flashing a
+/// console window. Used by `linkport serve --open`.
+fn open_in_system_browser(url: &str) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    }
 }
 
 async fn static_handler(uri: Uri) -> Response {

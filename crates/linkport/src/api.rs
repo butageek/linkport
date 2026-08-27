@@ -86,13 +86,16 @@ pub async fn events(Query(p): Query<EventsParams>) -> Json<Vec<Event>> {
 
 pub async fn register() -> Json<Value> {
     match std::env::current_exe() {
-        Ok(exe) => match linkport_win::register(&exe) {
-            Ok(()) => Json(json!({
-                "ok": true,
-                "detail": "Registered. Now set Linkport as the default for HTTP/HTTPS in Windows Settings > Apps > Default apps > Linkport."
-            })),
-            Err(e) => Json(json!({ "ok": false, "detail": e })),
-        },
+        Ok(exe) => {
+            let handler = crate::default_handler_command();
+            match linkport_win::register(&exe, &handler) {
+                Ok(()) => Json(json!({
+                    "ok": true,
+                    "detail": format!("Registered with handler: {handler}. Now set Linkport as the default for HTTP/HTTPS in Windows Settings > Apps > Default apps > Linkport.")
+                })),
+                Err(e) => Json(json!({ "ok": false, "detail": e })),
+            }
+        }
         Err(e) => Json(json!({ "ok": false, "detail": e.to_string() })),
     }
 }

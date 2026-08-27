@@ -126,9 +126,18 @@ fn matches_rule(rule: &Rule, url: &str, host: Option<&str>, scheme: Option<&str>
             Ok(g) => g.compile_matcher(),
             Err(e) => return MatchResult::No(format!("invalid host_glob: {e}")),
         };
-        match host {
-            Some(h) if matcher.is_match(h) => {}
-            _ => return MatchResult::No(format!("host_glob {pat:?} did not match host {host:?}")),
+        // Cookie-style semantics: `*.example.com` also matches `example.com`
+        // itself, so "route everything from this domain" does what users mean.
+        let bare = pat
+            .strip_prefix("*.")
+            .and_then(|p| Glob::new(p).ok())
+            .map(|g| g.compile_matcher());
+        let matched = match host {
+            Some(h) => matcher.is_match(h) || bare.as_ref().is_some_and(|m| m.is_match(h)),
+            None => false,
+        };
+        if !matched {
+            return MatchResult::No(format!("host_glob {pat:?} did not match host {host:?}"));
         }
     }
     if let Some(pat) = &rule.url_regex {
@@ -220,16 +229,22 @@ mod tests {
             evaluate(&c, "https://a.example.com/").outcome,
             Outcome::RuleMatched { .. }
         ));
-        // bare domain does not match the subdomain glob
-        assert_eq!(
+        // cookie-style: the bare domain matches its own `*.` pattern
+        assert!(matches!(
             evaluate(&c, "https://example.com/").outcome,
-            Outcome::NoMatch
-        );
+            Outcome::RuleMatched { .. }
+        ));
         // other domains do not match
         assert_eq!(
             evaluate(&c, "https://notexample.com/").outcome,
             Outcome::NoMatch
         );
+        // exact hosts still match exactly
+        let c2 = cfg(vec![rule("loopback", Some("127.0.0.1"), "ff")], None);
+        assert!(matches!(
+            evaluate(&c2, "http://127.0.0.1:14200/").outcome,
+            Outcome::RuleMatched { .. }
+        ));
     }
 
     #[test]

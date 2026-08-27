@@ -163,8 +163,10 @@ export default function RulesPage() {
           <CardHeader>
             <CardTitle>{editing.index >= 0 ? "Edit rule" : "New rule"}</CardTitle>
             <CardDescription>
-              All matchers are combined with AND; a rule with no matcher catches every
-              URL. Rules apply top to bottom — first match wins.
+              All matchers are combined with AND; a rule with no matcher catches every URL.
+              Rules apply top to bottom — first match wins. Host globs are cookie-style:
+              <code className="bg-muted rounded px-1">*.example.com</code> matches
+              <code className="bg-muted rounded px-1">example.com</code> and its subdomains.
             </CardDescription>
           </CardHeader>
           <CardContent>

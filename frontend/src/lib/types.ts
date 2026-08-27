@@ -54,6 +54,7 @@ export interface EventItem {
   url: string;
   host?: string | null;
   outcome: Outcome;
+  error?: string | null;
 }
 
 export interface Status {

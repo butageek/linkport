@@ -14,6 +14,9 @@ pub struct Event {
     pub url: String,
     pub host: Option<String>,
     pub outcome: Outcome,
+    /// Set when routing or launching failed; shown in the portal history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 impl Event {
@@ -23,6 +26,7 @@ impl Event {
             url: url.into(),
             host,
             outcome,
+            error: None,
         }
     }
 }

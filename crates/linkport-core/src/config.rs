@@ -84,7 +84,7 @@ pub struct Rule {
     #[serde(default = "default_true")]
     pub enabled: bool,
     /// Glob matched against the URL host, e.g. `*.example.com`.
-    /// Note: `*.example.com` does not match `example.com` itself.
+    /// Cookie-style: `*.example.com` also matches `example.com` itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_glob: Option<String>,
     /// Regex matched against the full URL.

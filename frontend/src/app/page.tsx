@@ -203,7 +203,14 @@ function RecentEvents({ events, onRefresh }: { events: EventItem[]; onRefresh: (
                   </TableCell>
                   <TableCell className="max-w-96 truncate">{e.url}</TableCell>
                   <TableCell>
-                    <OutcomeBadge outcome={e.outcome} />
+                    <div className="flex items-center gap-1">
+                      <OutcomeBadge outcome={e.outcome} />
+                      {e.error && (
+                        <Badge variant="destructive" title={e.error}>
+                          error
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-right">
                     {e.host && (

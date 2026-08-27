@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-pub fn register(_exe: &Path) -> Result<(), String> {
+pub fn register(_exe: &Path, _open_command: &str) -> Result<(), String> {
     Err("browser registration is only supported on Windows".to_string())
 }
 
