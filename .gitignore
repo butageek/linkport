@@ -10,3 +10,5 @@ frontend/out/
 # Misc
 *.log
 .DS_Store
+/dist
+AGENTS.local.md

@@ -1,7 +1,7 @@
 # AGENTS.md
 
-Working notes for AI coding agents (and humans) continuing development on
-Linkport. Read this before building or editing anything.
+Working notes for AI coding agents (and humans) contributing to Linkport.
+Read this before building or editing anything.
 
 ## What this is
 
@@ -10,96 +10,86 @@ embedded Next.js portal (rules/browsers/history management) and a system tray
 daemon. One crate produces two binaries. See README.md for the user-facing
 overview.
 
-## Environment (this machine)
+## Development environment
 
-- Development happens **inside WSL** (Ubuntu 24.04) at `~/repo/linkport`.
-- The interactive user shell is **zsh** with an fnm hook in `~/.zshrc`.
-  Non-interactive shells (most agents) will NOT have cargo/node on PATH.
-  Always export explicitly:
+Development targets **Linux or WSL** (the Windows binaries are
+cross-compiled); building on Windows directly works too.
 
-  ```bash
-  export PATH="$HOME/.cargo/bin:$HOME/.local/share/fnm/aliases/default/bin:$PATH"
-  ```
-
-- Toolchain: rustup stable, Node v24 (fnm), `mingw-w64` for cross-linking
-  the Windows exe. Frontend deps installed (`frontend/node_modules`).
-- Windows deployment target: `C:\Tools\Linkport` = `/mnt/c/Tools/Linkport`
-  from WSL. The installed exes are real NTFS copies — the install never
-  depends on WSL at runtime.
-- Windows processes/registry can be managed from WSL via interop:
-  `/mnt/c/Windows/System32/taskkill.exe`, `reg.exe`, and
-  `powershell.exe` all work.
+- Toolchain: rustup stable with the `x86_64-pc-windows-gnu` target, Node
+  18.18+ (v24 used in CI), and `mingw-w64` (`sudo apt install mingw-w64`)
+  for cross-linking the Windows exes.
+- Agents: make sure `cargo` and `npm` are on PATH — non-interactive shells
+  often miss them (e.g. under fnm/nvm setups).
+- `frontend/out` must exist for the Rust build (rust-embed); `build.rs`
+  creates a placeholder automatically if missing.
 
 ## Commands
 
 ```bash
-export PATH="$HOME/.cargo/bin:$HOME/.local/share/fnm/aliases/default/bin:$PATH"
-
-cargo test --workspace                      # unit tests (all in linkport-core)
+cargo test --workspace                      # unit tests (core + api)
 cargo check --target x86_64-pc-windows-gnu --workspace --all-targets
-(cd frontend && npm run build)              # static export → frontend/out
+(cd frontend && npm ci && npm run build)    # static export → frontend/out
 cargo build --release --target x86_64-pc-windows-gnu -p linkport
 ./scripts/build.sh                          # frontend + release, all-in-one
+./scripts/package.sh                        # build + dist/linkport-<ver>-win64.zip
 cargo fmt --all                             # repo is kept fmt-clean; run before committing
 ```
 
-`frontend/out` must exist for the Rust build (rust-embed); `build.rs`
-creates a placeholder automatically if missing.
+CI (`.github/workflows/ci.yml`) runs the format check, tests, the Windows
+cross-check and the portal build on every push and PR. Pushing a version
+tag (`v*`) triggers `.github/workflows/release.yml`, which builds the zip
+and publishes it as a GitHub Release.
 
-## Deploy routine (WSL → Windows)
-
-The running daemon **locks its exe** — overwriting a running executable
-fails with a misleading "Permission denied". Always kill first:
-
-```bash
-/mnt/c/Windows/System32/taskkill.exe /IM linkport-open.exe /F
-sleep 1
-cp target/x86_64-pc-windows-gnu/release/linkport.exe \
-   target/x86_64-pc-windows-gnu/release/linkport-open.exe /mnt/c/Tools/Linkport/
-/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -NoProfile -Command \
-  "Start-Process -WindowStyle Hidden 'C:\Tools\Linkport\linkport-open.exe' -ArgumentList 'serve'"
-/mnt/c/Windows/System32/tasklist.exe | grep -i linkport   # verify
-```
+Maintainers keep machine-specific notes (WSL paths, deploy routine) in a
+gitignored `AGENTS.local.md` next to this file.
 
 ## Windows integration state (all HKCU, no admin)
 
+`<install>` below means the directory holding the two exes (the install
+path is registered with Windows — moving it requires re-registering).
+
 | Purpose | Key / mechanism | Value shape |
 |---|---|---|
-| URL handler (ProgId) | `Software\Classes\Linkport.URL\shell\open\command` | `"C:\Tools\Linkport\linkport-open.exe" "%1"` |
+| URL handler (ProgId) | `Software\Classes\Linkport.URL\shell\open\command` | `"<install>\linkport.exe" "%1"` |
+| Entry icons | `…\Linkport.URL\DefaultIcon` + `…\StartMenuInternet\Linkport\DefaultIcon` | `<install>\linkport.exe,0` (exe embeds `resources/icon.ico` via winresource/windres) |
 | Browser candidate | `Software\Clients\StartMenuInternet\Linkport\…` (+ `RegisteredApplications`) | capabilities + URLAssociations http/https |
 | Default-browser choice | `…\UrlAssociations\{http,https}\UserChoice` | `Linkport.URL` (user sets via Settings; apps cannot) |
-| Login auto-start | `Software\Microsoft\Windows\CurrentVersion\Run\Linkport` | `"C:\Tools\Linkport\linkport-open.exe" serve` |
+| Login auto-start | `Software\Microsoft\Windows\CurrentVersion\Run\Linkport` | `"<install>\linkport.exe" serve` |
+| Start-menu restart entry | `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Linkport.lnk` | target `linkport.exe serve`; daemon recreates it when missing. After a tray Quit, this — or double-clicking `linkport.exe` (no args = serve) — is how the daemon comes back |
 
-After re-registering, verify `UserChoice` didn't get reset by Windows.
+After re-registering, verify `UserChoice` didn't get reset by Windows
+(re-registering can invalidate its hash — if `http\UserChoice` is gone,
+the user must re-set the default browser by hand in Settings).
 
 ## Runtime state
 
-`%APPDATA%\linkport` (Windows) / `~/.config/linkport` (Linux), i.e.
-`/mnt/c/Users/hendry.chou/AppData/Roaming/linkport` from WSL:
+`%APPDATA%\linkport` (Windows) / `~/.config/linkport` (Linux):
 
 - `config.toml` — browsers + ordered rules (portal PUTs this atomically)
 - `token` — portal bearer token (created on first run; first-run portal
   auto-open triggers when it did not exist before the boot)
 - `events.jsonl` — append-only history of every routed URL + errors
-  (**primary debugging tool**: `tail -1 …/events.jsonl` after a click)
+  (**primary debugging tool**: check the newest line after a click)
 - `paused.flag` — presence = routing paused (hot path sends everything to
   `default_browser`)
 
 ## Architecture map
 
-- `crates/linkport-core` — pure, platform-free, all unit tests live here.
+- `crates/linkport-core` — pure, platform-free, most unit tests live here.
   `config.rs` (serde model, atomic save, validation), `engine.rs`
   (ordered rules → `Decision` with per-rule `RuleTrace`), `launcher.rs`
   (`{url}` arg templates + Windows command-template parsing),
   `event.rs` (JSONL log).
-- `crates/linkport-win` — registry code behind `#[cfg(windows)]` with
-  non-Windows stubs (workspace must `cargo check` on Linux):
-  `registry.rs` (default-browser registration), `discover.rs`
-  (StartMenuInternet scan, deduped), `autostart.rs` (Run key).
+- `crates/linkport-win` — Windows integration behind `#[cfg(windows)]`
+  with non-Windows stubs (the workspace must `cargo check` on Linux):
+  `registry/` (default-browser registration), `discover/` (StartMenuInternet
+  scan + system-default detection), `autostart/` (Run key), `shortcut/`
+  (Start-menu `.lnk`).
 - `crates/linkport` — `lib.rs` (`open.rs` hot path, `portal.rs` axum daemon
   + static SPA serving + auth, `api.rs` JSON API, `tray.rs`) and bins
-  `linkport.rs` (console CLI) / `linkport_open.rs` (GUI subsystem:
-  `<url>` handler + `serve` mode).
+  `linkport.rs` (the windowless GUI-subsystem main binary: URL handler +
+  `serve`/no-args daemon) / `linkport_cli.rs` (console CLI: test/register/
+  browsers/dev serve).
 - `frontend/` — Next.js 15 **static export** (`output: 'export'`), React 19,
   shadcn/ui, Tailwind v4. All pages are client components. API client in
   `src/lib/api.ts`, shared types in `src/lib/types.ts` (mirror the Rust
@@ -137,20 +127,21 @@ After re-registering, verify `UserChoice` didn't get reset by Windows.
 - **rust-embed 8.x**: `#[folder]` is resolved relative to
   `CARGO_MANIFEST_DIR` (NOT the source file), and `$CARGO_MANIFEST_DIR`
   interpolation is NOT supported. Our path: `"../../frontend/out"`.
-- **Console flash**: never point registry commands at console
-  `linkport.exe`. The GUI-subsystem `linkport-open.exe` exists precisely so
+- **Console flash**: never point registry commands at the console
+  `linkport-cli.exe`. The GUI-subsystem `linkport.exe` exists precisely so
   no console window flashes (URL handling, login auto-start).
-- **Glob semantics**: `globset`'s `*` does not cross `.` boundaries the way
-  users expect, so the engine adds cookie-style handling:
-  `*.example.com` also matches `example.com` (see `matches_rule`).
+- **Glob semantics**: host matchers are cookie-domain style — the pattern
+  (with an optional `*.` prefix stripped) matches the host itself and any
+  subdomain at any depth, dot-boundary respected (`example.com` matches
+  `a.example.com`; `notexample.com` does not). Patterns containing other
+  wildcards fall back to `globset` matching (see `matches_rule`).
 - **Chrome-style registry commands** parse via
   `launcher::parse_command_template` (`%1` → `{url}`); browsers with no
   `{url}` in args get the URL appended.
-- **WSL networking**: a portal bound on the Windows side is NOT reachable
-  from WSL at `127.0.0.1` (WSL2 NAT). Test Windows-side behavior by
-  running the Windows exe via interop (works fine) and read
-  `events.jsonl` for outcomes; test the portal itself with the Linux
-  build.
+- **WSL development** (if applicable): a portal bound on the Windows side
+  is NOT reachable from WSL at `127.0.0.1` (WSL2 NAT). Test Windows-side
+  behavior by running the Windows exe via interop and read `events.jsonl`
+  for outcomes; test the portal itself with the Linux build.
 - **Formatting**: the repo is `cargo fmt`-clean; re-run `cargo fmt --all`
   before committing. (fmt also reformats strings/line breaks — when
   applying text-based edits, re-read the file first instead of trusting
@@ -166,16 +157,17 @@ After re-registering, verify `UserChoice` didn't get reset by Windows.
 2. `cargo check --target x86_64-pc-windows-gnu --workspace --all-targets`
    (validates the cfg(windows) code paths)
 3. `(cd frontend && npm run build)` (type-checks the portal)
-4. Release build + deploy routine above
-5. Behavior: `./target/x86_64-pc-windows-gnu/release/linkport.exe test "<url>"`
-   via interop, then `tail /mnt/c/Users/hendry.chou/AppData/Roaming/linkport/events.jsonl`
-6. User verifies tray/portal behavior on the desktop
+4. Release build: `cargo build --release --target x86_64-pc-windows-gnu -p linkport`
+5. Behavior on a Windows install: `linkport-cli.exe test "<url>"`, then
+   check the newest `events.jsonl` line; user verifies tray/portal
+   behavior on the desktop
 
 ## Current limitations / next ideas
 
 - Ambiguous-link picker dialog (websteer-style), browser-running heuristic,
   shortener expansion — see README roadmap.
-- Detected browser names are raw registry key names (`Firefox-308046B0AF4A39CB`).
-- No installer, no code signing (SmartScreen warns on the unsigned exe).
+- No installer, no code signing (SmartScreen warns on the unsigned exe);
+  distribution is a portable zip — a winget manifest is a natural next
+  step once there is a public release.
 - Linux port: core is ready; needs `.desktop` + `xdg-settings` glue in a
   `linkport-linux` crate.
