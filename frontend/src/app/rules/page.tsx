@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { api } from "@/lib/api";
-import type { Config, Rule } from "@/lib/types";
+import type { Rule } from "@/lib/types";
+import { useConfigEditor } from "@/lib/use-config-editor";
+import { WarningsBanner } from "@/components/warnings-banner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +18,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -49,11 +52,8 @@ function matcherSummary(rule: Rule): string[] {
 }
 
 export default function RulesPage() {
-  const [config, setConfig] = useState<Config | null>(null);
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [warnings, setWarnings] = useState<string[]>([]);
+  const { config, setConfig, dirty, saving, error, setError, warnings, mutate, save } =
+    useConfigEditor();
   // null = form closed; -1 = creating new; >= 0 = editing rules[index]
   const [editing, setEditing] = useState<{ index: number; draft: Rule } | null>(null);
 
@@ -68,36 +68,10 @@ export default function RulesPage() {
     if (host) {
       setEditing({
         index: -1,
-        draft: { ...emptyRule(), name: host, host_glob: `*.${host}` },
+        draft: { ...emptyRule(), name: host, host_glob: host },
       });
     }
   }, []);
-
-  function mutate(fn: (c: Config) => void) {
-    setConfig((c) => {
-      if (!c) return c;
-      const next = structuredClone(c);
-      fn(next);
-      return next;
-    });
-    setDirty(true);
-    setWarnings([]);
-  }
-
-  async function save() {
-    if (!config) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await api.saveConfig(config);
-      setWarnings(res.warnings);
-      setDirty(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
 
   function moveRule(i: number, dir: -1 | 1) {
     mutate((c) => {
@@ -124,9 +98,7 @@ export default function RulesPage() {
     setEditing(null);
   }
 
-  const browserOptions = config
-    ? Object.entries(config.browsers)
-    : [];
+  const browserOptions = Object.entries(config?.browsers ?? {});
 
   return (
     <div className="flex flex-col gap-6">
@@ -147,16 +119,7 @@ export default function RulesPage() {
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
-      {warnings.length > 0 && (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-          <p className="mb-1 font-medium">Saved with warnings:</p>
-          <ul className="list-disc pl-4">
-            {warnings.map((w, i) => (
-              <li key={i}>{w}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <WarningsBanner warnings={warnings} />
 
       {editing && (
         <Card>
@@ -164,9 +127,11 @@ export default function RulesPage() {
             <CardTitle>{editing.index >= 0 ? "Edit rule" : "New rule"}</CardTitle>
             <CardDescription>
               All matchers are combined with AND; a rule with no matcher catches every URL.
-              Rules apply top to bottom — first match wins. Host globs are cookie-style:
-              <code className="bg-muted rounded px-1">*.example.com</code> matches
-              <code className="bg-muted rounded px-1">example.com</code> and its subdomains.
+              Rules apply top to bottom — first match wins. Host matchers:
+              <code className="bg-muted rounded px-1">example.com</code> matches that host
+              and all of its subdomains (any depth); the
+              <code className="bg-muted rounded px-1">*.</code> prefix is an equivalent
+              alias.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -185,14 +150,13 @@ export default function RulesPage() {
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="rule-target">Open with</Label>
-                <select
+                <NativeSelect
                   id="rule-target"
                   required
                   value={editing.draft.target}
                   onChange={(e) =>
                     setEditing({ ...editing, draft: { ...editing.draft, target: e.target.value } })
                   }
-                  className="border-input flex h-9 rounded-md border bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 >
                   <option value="" disabled>
                     choose browser…
@@ -205,7 +169,7 @@ export default function RulesPage() {
                   <option value={BLOCK}>
                     Block (open nothing)
                   </option>
-                </select>
+                </NativeSelect>
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="rule-host">Host glob</Label>
@@ -215,7 +179,7 @@ export default function RulesPage() {
                   onChange={(e) =>
                     setEditing({ ...editing, draft: { ...editing.draft, host_glob: e.target.value } })
                   }
-                  placeholder="*.mycompany.com"
+                  placeholder="example.com (covers its subdomains)"
                 />
               </div>
               <div className="flex flex-col gap-2">
@@ -331,7 +295,7 @@ export default function RulesPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end">
-                        <Button variant="ghost" size="icon" onClick={() => setEditing({ index: i, draft: { ...r} })} aria-label="Edit">
+                        <Button variant="ghost" size="icon" onClick={() => setEditing({ index: i, draft: { ...r } })} aria-label="Edit">
                           <Pencil />
                         </Button>
                         <Button

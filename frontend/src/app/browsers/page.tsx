@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 
 import { api } from "@/lib/api";
-import type { BrowsersResponse, Browser, Config } from "@/lib/types";
+import type { BrowsersResponse, Browser } from "@/lib/types";
+import { useConfigEditor } from "@/lib/use-config-editor";
+import { WarningsBanner } from "@/components/warnings-banner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 
 interface BrowserDraft {
   id: string;
@@ -46,12 +49,9 @@ function slug(name: string): string {
 }
 
 export default function BrowsersPage() {
-  const [config, setConfig] = useState<Config | null>(null);
+  const { config, setConfig, dirty, saving, error, setError, warnings, mutate, save } =
+    useConfigEditor();
   const [discovered, setDiscovered] = useState<BrowsersResponse["discovered"]>([]);
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [warnings, setWarnings] = useState<string[]>([]);
   const [draft, setDraft] = useState<BrowserDraft | null>(null);
 
   function load() {
@@ -65,32 +65,6 @@ export default function BrowsersPage() {
   }
 
   useEffect(load, []);
-
-  function mutate(fn: (c: Config) => void) {
-    setConfig((c) => {
-      if (!c) return c;
-      const next = structuredClone(c);
-      fn(next);
-      return next;
-    });
-    setDirty(true);
-    setWarnings([]);
-  }
-
-  async function save() {
-    if (!config) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await api.saveConfig(config);
-      setWarnings(res.warnings);
-      setDirty(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
 
   function submitDraft(e: React.FormEvent) {
     e.preventDefault();
@@ -137,16 +111,7 @@ export default function BrowsersPage() {
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
-      {warnings.length > 0 && (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-          <p className="mb-1 font-medium">Saved with warnings:</p>
-          <ul className="list-disc pl-4">
-            {warnings.map((w, i) => (
-              <li key={i}>{w}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <WarningsBanner warnings={warnings} />
 
       {draft && (
         <Card>
@@ -197,7 +162,7 @@ export default function BrowsersPage() {
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="b-args">Args (one per line)</Label>
-                <textarea
+                <Textarea
                   id="b-args"
                   value={draft.browser.args.join("\n")}
                   onChange={(e) =>
@@ -210,12 +175,11 @@ export default function BrowsersPage() {
                     })
                   }
                   placeholder={"--profile-directory=Work\n{url}"}
-                  className="border-input placeholder:text-muted-foreground min-h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 />
               </div>
               <div className="flex flex-col gap-2 md:col-span-2">
                 <Label htmlFor="b-incog">Incognito args (optional, one per line)</Label>
-                <textarea
+                <Textarea
                   id="b-incog"
                   value={draft.browser.incognito_args?.join("\n") ?? ""}
                   onChange={(e) =>
@@ -228,7 +192,6 @@ export default function BrowsersPage() {
                     })
                   }
                   placeholder={"--incognito\n{url}"}
-                  className="border-input placeholder:text-muted-foreground min-h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 />
               </div>
               <div className="flex gap-2 md:col-span-2">
@@ -332,14 +295,14 @@ export default function BrowsersPage() {
                   className="flex items-center justify-between gap-4 rounded-md border px-3 py-2"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{d.name}</p>
+                    <p className="truncate text-sm font-medium">{d.display_name || d.name}</p>
                     <p className="truncate text-xs text-muted-foreground">{d.command}</p>
                   </div>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() =>
-                      addDiscovered(d.name, d.suggested.exe, d.suggested.args)
+                      addDiscovered(d.display_name || d.name, d.suggested.exe, d.suggested.args)
                     }
                   >
                     <Plus /> Add

@@ -70,7 +70,10 @@ export interface Status {
 }
 
 export interface DiscoveredBrowser {
+  /** Raw registry key name (e.g. Firefox-308046B0AF4A39CB) — for debug. */
   name: string;
+  /** Friendly name from the registry (e.g. Mozilla Firefox). */
+  display_name: string;
   command: string;
   suggested: { exe: string; args: string[] };
 }

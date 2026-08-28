@@ -39,7 +39,7 @@ export const api = {
   status: () => call<Status>("/api/status"),
   getConfig: () => call<Config>("/api/config"),
   saveConfig: (config: Config) =>
-    call<{ ok: boolean; warnings: string[] }>("/api/config", {
+    call<{ ok: boolean; warnings: string[]; config?: Config }>("/api/config", {
       method: "PUT",
       body: JSON.stringify(config),
     }),
@@ -50,6 +50,7 @@ export const api = {
       body: JSON.stringify({ url }),
     }),
   events: (limit = 50) => call<EventItem[]>(`/api/events?limit=${limit}`),
+  clearEvents: () => call<{ ok: boolean }>("/api/events", { method: "DELETE" }),
   register: () =>
     call<{ ok: boolean; detail: string }>("/api/register", { method: "POST" }),
   unregister: () =>

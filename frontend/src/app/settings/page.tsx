@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
 
 export default function SettingsPage() {
   const [config, setConfig] = useState<Config | null>(null);
@@ -43,7 +44,7 @@ export default function SettingsPage() {
       setMessage(
         res.warnings.length > 0
           ? `Saved with warnings: ${res.warnings.join("; ")}`
-          : "Saved. Restart `linkport serve` for a port change to take effect.",
+          : "Saved. Restart `linkport-cli serve` for a port change to take effect.",
       );
       load();
     } catch (e) {
@@ -62,6 +63,14 @@ export default function SettingsPage() {
     }
   }
 
+  // The select shows a valid choice even when default_browser dangles
+  // (the backend re-resolves it on save).
+  const browserEntries = config ? Object.entries(config.browsers) : [];
+  const currentDefault =
+    config?.default_browser && config.browsers[config.default_browser]
+      ? config.default_browser
+      : (browserEntries[0]?.[0] ?? "");
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -74,7 +83,7 @@ export default function SettingsPage() {
       {error && <p className="text-sm text-destructive">{error}</p>}
       {message && <p className="text-sm text-muted-foreground">{message}</p>}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 xl:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Routing defaults</CardTitle>
@@ -84,9 +93,9 @@ export default function SettingsPage() {
             {config && (
               <div className="flex flex-col gap-2">
                 <Label htmlFor="default-browser">Default browser</Label>
-                <select
+                <NativeSelect
                   id="default-browser"
-                  value={config.default_browser ?? ""}
+                  value={currentDefault}
                   onChange={(e) => {
                     setConfig({
                       ...config,
@@ -94,15 +103,22 @@ export default function SettingsPage() {
                     });
                     setDirty(true);
                   }}
-                  className="border-input flex h-9 rounded-md border bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 >
-                  <option value="">(none — unmatched links are dropped)</option>
-                  {Object.entries(config.browsers).map(([id, b]) => (
-                    <option key={id} value={id}>
-                      {b.display_name}
-                    </option>
-                  ))}
-                </select>
+                  {browserEntries.length === 0 ? (
+                    <option value="">(no browsers configured yet)</option>
+                  ) : (
+                    browserEntries.map(([id, b]) => (
+                      <option key={id} value={id}>
+                        {b.display_name}
+                      </option>
+                    ))
+                  )}
+                </NativeSelect>
+                <p className="text-xs text-muted-foreground">
+                  Used when no rule matches. Pre-set to your system default
+                  browser on first save; Linkport keeps a valid choice if you
+                  delete a browser.
+                </p>
               </div>
             )}
             {config && (
@@ -123,7 +139,7 @@ export default function SettingsPage() {
                   }}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Takes effect after restarting <code>linkport serve</code>.
+                  Takes effect after restarting <code>linkport-cli serve</code>.
                 </p>
               </div>
             )}
@@ -160,7 +176,7 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-2">
+        <Card className="xl:col-span-2">
           <CardHeader>
             <CardTitle>Portal access</CardTitle>
             <CardDescription>

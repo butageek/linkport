@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Anchor, Globe, LayoutDashboard, Settings, Shuffle } from "lucide-react";
+import { Globe, LayoutDashboard, Settings, Shuffle } from "lucide-react";
 
 import { api, getToken, setToken } from "@/lib/api";
+import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -22,7 +23,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<"loading" | "locked" | "ready">("loading");
 
   useEffect(() => {
-    // Accept ?token= from the `linkport portal-url` launch link, then strip it.
+    // Accept ?token= from the `linkport-cli portal-url` launch link, then strip it.
     const params = new URLSearchParams(window.location.search);
     const t = params.get("token");
     if (t) {
@@ -62,7 +63,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen">
       <aside className="fixed inset-y-0 left-0 z-10 flex w-56 flex-col border-r bg-card">
         <div className="flex items-center gap-2 px-4 py-5 font-semibold">
-          <Anchor className="size-5" />
+          <Logo className="size-5" />
           Linkport
         </div>
         <nav className="flex flex-col gap-1 px-2">
@@ -118,14 +119,14 @@ function TokenGate({ onUnlock }: { onUnlock: () => void }) {
         className="w-full max-w-sm rounded-xl border bg-card p-6 shadow-sm flex flex-col gap-4"
       >
         <div className="flex items-center gap-2 font-semibold">
-          <Anchor className="size-5" />
+          <Logo className="size-5" />
           Linkport portal
         </div>
         <p className="text-sm text-muted-foreground">
           This browser hasn’t been unlocked yet. Easiest: click the Linkport tray
           icon (or right-click → <strong>Open Linkport portal</strong>). You can also
           right-click → <strong>Copy portal URL</strong> and paste it above, or run{" "}
-          <code className="rounded bg-muted px-1">linkport portal-url</code> in a
+          <code className="rounded bg-muted px-1">linkport-cli portal-url</code> in a
           terminal.
         </p>
         <Input
@@ -136,7 +137,7 @@ function TokenGate({ onUnlock }: { onUnlock: () => void }) {
         />
         {error && (
           <p className="text-sm text-destructive">
-            Cannot reach the portal — is <code>linkport serve</code> running, and is the
+            Cannot reach the portal — is <code>linkport-cli serve</code> running, and is the
             token correct?
           </p>
         )}

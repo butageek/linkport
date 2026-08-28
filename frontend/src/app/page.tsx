@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, RefreshCw } from "lucide-react";
+import { Plus, RefreshCw, Trash2 } from "lucide-react";
 
 import { api } from "@/lib/api";
 import type { Decision, EventItem, Status } from "@/lib/types";
@@ -30,13 +30,19 @@ import { cn } from "@/lib/utils";
 export default function DashboardPage() {
   const [status, setStatus] = useState<Status | null>(null);
   const [events, setEvents] = useState<EventItem[]>([]);
+  const [browserNames, setBrowserNames] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    Promise.all([api.status(), api.events(30)])
-      .then(([s, e]) => {
+    Promise.all([api.status(), api.events(30), api.getConfig()])
+      .then(([s, e, c]) => {
         setStatus(s);
         setEvents(e);
+        setBrowserNames(
+          Object.fromEntries(
+            Object.entries(c.browsers).map(([id, b]) => [id, b.display_name]),
+          ),
+        );
         setError(null);
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
@@ -48,16 +54,22 @@ export default function DashboardPage() {
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold">Dashboard</h1>
       {error && <p className="text-sm text-destructive">{error}</p>}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <StatusCard status={status} />
-        <TestCard />
+      <div className="grid gap-6 xl:grid-cols-2">
+        <StatusCard status={status} browserNames={browserNames} />
+        <TestCard browserNames={browserNames} />
       </div>
-      <RecentEvents events={events} onRefresh={load} />
+      <RecentEvents events={events} browserNames={browserNames} onRefresh={load} />
     </div>
   );
 }
 
-function StatusCard({ status }: { status: Status | null }) {
+function StatusCard({
+  status,
+  browserNames,
+}: {
+  status: Status | null;
+  browserNames: Record<string, string>;
+}) {
   return (
     <Card>
       <CardHeader>
@@ -95,10 +107,14 @@ function StatusCard({ status }: { status: Status | null }) {
               )}
             </Row>
             <Row label="Default browser">
-              {status.default_browser ?? <span className="text-muted-foreground">none</span>}
+              {status.default_browser ? (
+                (browserNames[status.default_browser] ?? status.default_browser)
+              ) : (
+                <span className="text-muted-foreground">none</span>
+              )}
             </Row>
             <Row label="Config">
-              <code className="text-xs">{status.config_path}</code>
+              <code className="text-xs break-all">{status.config_path}</code>
             </Row>
           </>
         )}
@@ -109,14 +125,15 @@ function StatusCard({ status }: { status: Status | null }) {
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right">{children}</span>
+    <div className="flex items-start justify-between gap-4">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      {/* min-w-0 lets long values (paths, URLs) wrap instead of overflowing */}
+      <span className="min-w-0 text-right">{children}</span>
     </div>
   );
 }
 
-function TestCard() {
+function TestCard({ browserNames }: { browserNames: Record<string, string> }) {
   const [url, setUrl] = useState("");
   const [decision, setDecision] = useState<Decision | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -158,8 +175,8 @@ function TestCard() {
         {decision && (
           <div className="flex flex-col gap-2 text-sm">
             <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">Outcome:</span>
-              <OutcomeBadge outcome={decision.outcome} />
+              <span className="text-muted-foreground">Opened in:</span>
+              <OutcomeBadge outcome={decision.outcome} browserNames={browserNames} />
             </div>
             <div className="rounded-md border">
               {decision.trace.map((t, i) => (
@@ -181,7 +198,23 @@ function TestCard() {
   );
 }
 
-function RecentEvents({ events, onRefresh }: { events: EventItem[]; onRefresh: () => void }) {
+function RecentEvents({
+  events,
+  browserNames,
+  onRefresh,
+}: {
+  events: EventItem[];
+  browserNames: Record<string, string>;
+  onRefresh: () => void;
+}) {
+  async function clear() {
+    try {
+      await api.clearEvents();
+    } finally {
+      onRefresh();
+    }
+  }
+
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between">
@@ -189,9 +222,20 @@ function RecentEvents({ events, onRefresh }: { events: EventItem[]; onRefresh: (
           <CardTitle>Recent links</CardTitle>
           <CardDescription>Newest first — create a rule straight from a host</CardDescription>
         </div>
-        <Button variant="ghost" size="icon" onClick={onRefresh} aria-label="Refresh">
-          <RefreshCw />
-        </Button>
+        <div className="flex">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={clear}
+            disabled={events.length === 0}
+            aria-label="Clear history"
+          >
+            <Trash2 />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={onRefresh} aria-label="Refresh">
+            <RefreshCw />
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {events.length === 0 ? (
@@ -205,7 +249,7 @@ function RecentEvents({ events, onRefresh }: { events: EventItem[]; onRefresh: (
               <TableRow>
                 <TableHead>When</TableHead>
                 <TableHead>URL</TableHead>
-                <TableHead>Outcome</TableHead>
+                <TableHead>Opened in</TableHead>
                 <TableHead className="text-right">Rule</TableHead>
               </TableRow>
             </TableHeader>
@@ -218,7 +262,7 @@ function RecentEvents({ events, onRefresh }: { events: EventItem[]; onRefresh: (
                   <TableCell className="max-w-96 truncate">{e.url}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
-                      <OutcomeBadge outcome={e.outcome} />
+                      <OutcomeBadge outcome={e.outcome} browserNames={browserNames} />
                       {e.error && (
                         <Badge variant="destructive" title={e.error}>
                           error
