@@ -1,6 +1,7 @@
 //! The hot path: read config, evaluate rules, launch the browser, log, exit.
 //! Daemon-independent by design so links keep working when the portal is down.
 
+use crate::paths;
 use anyhow::{Context, Result};
 use linkport_core::engine::{self, Outcome};
 use linkport_core::event;
@@ -11,51 +12,39 @@ use linkport_core::{config, launcher};
 pub fn open_url(url: &str) -> Result<()> {
     let cfg = paths::load_or_default();
 
-    // Routing paused: send everything to the configured default browser.
-    if paths::is_paused() {
+    let (outcome, host, result) = if paths::is_paused() {
+        // Routing paused: send everything to the configured default browser.
         let target = cfg
             .default_browser
             .clone()
             .filter(|t| cfg.browsers.contains_key(t));
-        return match target {
+        match target {
             Some(t) => {
                 let result = launch_browser(&cfg, &t, url, false);
-                let error = result.as_ref().err().map(|e| e.to_string());
-                let _ = event::append(
-                    &paths::events_path(),
-                    &event::Event {
-                        error,
-                        ..event::Event::new(url, None, Outcome::Default { target: t })
-                    },
-                );
-                result
+                (Outcome::Default { target: t }, None, result)
             }
-            None => {
-                let err = anyhow::anyhow!("routing is paused but no default browser is configured");
-                let _ = event::append(
-                    &paths::events_path(),
-                    &event::Event {
-                        error: Some(err.to_string()),
-                        ..event::Event::new(url, None, Outcome::NoMatch)
-                    },
-                );
-                Err(err)
-            }
+            None => (
+                Outcome::NoMatch,
+                None,
+                Err(anyhow::anyhow!(
+                    "routing is paused but no default browser is configured"
+                )),
+            ),
+        }
+    } else {
+        let decision = engine::evaluate(&cfg, url);
+        let result = match &decision.outcome {
+            Outcome::RuleMatched {
+                target, incognito, ..
+            } => launch_browser(&cfg, target, url, *incognito),
+            Outcome::Default { target } => launch_browser(&cfg, target, url, false),
+            // Blocked URLs are swallowed without opening anything.
+            Outcome::Blocked { .. } => Ok(()),
+            Outcome::NoMatch => Err(anyhow::anyhow!(
+                "no rule matched and no default browser is configured"
+            )),
         };
-    }
-
-    let decision = engine::evaluate(&cfg, url);
-    let outcome = decision.outcome.clone();
-
-    let result: Result<()> = match &outcome {
-        Outcome::RuleMatched {
-            target, incognito, ..
-        } => launch_browser(&cfg, target, url, *incognito),
-        Outcome::Default { target } => launch_browser(&cfg, target, url, false),
-        Outcome::Blocked { .. } => Ok(()),
-        Outcome::NoMatch => Err(anyhow::anyhow!(
-            "no rule matched and no default browser is configured"
-        )),
+        (decision.outcome, decision.host, result)
     };
 
     let error = result.as_ref().err().map(|e| e.to_string());
@@ -63,7 +52,7 @@ pub fn open_url(url: &str) -> Result<()> {
         &paths::events_path(),
         &event::Event {
             error,
-            ..event::Event::new(url, decision.host.clone(), outcome)
+            ..event::Event::new(url, host, outcome)
         },
     );
 
@@ -95,7 +84,7 @@ pub fn test_url(url: &str) -> Result<()> {
 pub fn list_browsers() -> Result<()> {
     let cfg = paths::load_or_default();
     if cfg.browsers.is_empty() {
-        println!("no browsers configured — run `linkport serve` and use the portal");
+        println!("no browsers configured — run `linkport-cli serve` and use the portal");
     } else {
         println!("configured:");
         for (id, b) in &cfg.browsers {
@@ -106,7 +95,7 @@ pub fn list_browsers() -> Result<()> {
     if !discovered.is_empty() {
         println!("discovered on this system:");
         for d in discovered {
-            println!("  {:<16} {}", d.name, d.command);
+            println!("  {:<24} {}", d.display_name, d.command);
         }
     }
     match &cfg.default_browser {
@@ -116,5 +105,3 @@ pub fn list_browsers() -> Result<()> {
     }
     Ok(())
 }
-
-use crate::paths;

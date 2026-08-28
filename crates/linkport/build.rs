@@ -1,11 +1,13 @@
 // Ensures the rust-embed source folder exists so the crate compiles before
-// the frontend has been built at least once.
+// the frontend has been built at least once, and embeds the app icon into
+// the Windows exes (Default-apps / Start-menu icons, Explorer file icon).
 
 use std::fs;
 use std::path::Path;
 
 fn main() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../frontend/out");
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let dir = manifest.join("../../frontend/out");
     if !dir.join("index.html").exists() {
         let _ = fs::create_dir_all(&dir);
         let _ = fs::write(dir.join("index.html"), PLACEHOLDER);
@@ -15,6 +17,20 @@ fn main() {
         );
     }
     println!("cargo:rerun-if-changed=build.rs");
+
+    // Icon resource for the Windows binaries. windres comes with mingw-w64.
+    if std::env::var("TARGET")
+        .map(|t| t.contains("windows"))
+        .unwrap_or(false)
+    {
+        let icon = manifest.join("../../resources/icon.ico");
+        println!("cargo:rerun-if-changed={}", icon.display());
+        let mut res = winresource::WindowsResource::new();
+        res.set_icon_with_id(&icon.display().to_string(), "1");
+        if let Err(e) = res.compile() {
+            panic!("failed to embed icon (is mingw-w64 windres installed?): {e}");
+        }
+    }
 }
 
 const PLACEHOLDER: &str = r#"<!doctype html>

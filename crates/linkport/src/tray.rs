@@ -1,6 +1,6 @@
 //! System tray presence for the portal daemon (Windows only).
 //!
-//! Shows a tray icon while `linkport serve` runs:
+//! Shows a tray icon while the daemon (`linkport.exe serve`) runs:
 //! - left click      → open the web portal
 //! - right click     → menu: Open portal / Start-at-login toggle /
 //!   Pause-routing toggle / Version / Portal URL / Quit
@@ -23,6 +23,7 @@ use crate::portal::AppState;
 static TRAY_THREAD_ID: AtomicU32 = AtomicU32::new(0);
 
 const ICON_RGBA: &[u8] = include_bytes!("../../../resources/icon32.rgba");
+const ICON_GREY_RGBA: &[u8] = include_bytes!("../../../resources/icon32-grey.rgba");
 const ICON_SIZE: u32 = 32;
 
 /// WM_APP-based command posted to the tray thread (wParam payload).
@@ -109,14 +110,12 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
     menu.append(&sep3)?;
     menu.append(&quit_item)?;
 
-    let icon = Icon::from_rgba(ICON_RGBA.to_vec(), ICON_SIZE, ICON_SIZE)?;
-    let _tray = TrayIconBuilder::new()
+    let paused = crate::paths::is_paused();
+    let icon = tray_icon(paused)?;
+    let tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
         .with_menu_on_left_click(false)
-        .with_tooltip(format!(
-            "Linkport {} — rule-based browser router",
-            env!("CARGO_PKG_VERSION")
-        ))
+        .with_tooltip(tooltip_text(paused))
         .with_icon(icon)
         .build()?;
 
@@ -176,7 +175,7 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
         if msg.hwnd.is_null() && msg.message == WM_TRAY_CMD {
             match msg.wParam {
                 CMD_TOGGLE_AUTOSTART => toggle_autostart(&autostart),
-                CMD_TOGGLE_PAUSE => toggle_pause(&pause),
+                CMD_TOGGLE_PAUSE => toggle_pause(&pause, &tray),
                 _ => {}
             }
             continue;
@@ -203,11 +202,43 @@ fn toggle_autostart(item: &CheckMenuItem) {
     }
 }
 
-fn toggle_pause(item: &CheckMenuItem) {
+fn toggle_pause(item: &CheckMenuItem, tray: &tray_icon::TrayIcon) {
     let want = !crate::paths::is_paused();
     match crate::paths::set_paused(want) {
-        Ok(()) => item.set_checked(want),
+        Ok(()) => {
+            item.set_checked(want);
+            if let Ok(icon) = tray_icon(want) {
+                if let Err(e) = tray.set_icon(Some(icon)) {
+                    eprintln!("linkport: pause icon swap failed: {e}");
+                }
+            }
+            if let Err(e) = tray.set_tooltip(Some(tooltip_text(want))) {
+                eprintln!("linkport: tooltip update failed: {e}");
+            }
+        }
         Err(e) => eprintln!("linkport: pause toggle failed: {e}"),
+    }
+}
+
+/// The tray icon reflects routing state: colored when routing, grey when
+/// paused.
+fn tray_icon(paused: bool) -> anyhow::Result<Icon> {
+    let rgba = if paused { ICON_GREY_RGBA } else { ICON_RGBA };
+    Icon::from_rgba(rgba.to_vec(), ICON_SIZE, ICON_SIZE)
+        .map_err(|e| anyhow::anyhow!("bad icon data: {e}"))
+}
+
+fn tooltip_text(paused: bool) -> String {
+    if paused {
+        format!(
+            "Linkport {} — routing paused (all links to default browser)",
+            env!("CARGO_PKG_VERSION")
+        )
+    } else {
+        format!(
+            "Linkport {} — rule-based browser router",
+            env!("CARGO_PKG_VERSION")
+        )
     }
 }
 

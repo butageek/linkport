@@ -31,23 +31,23 @@ pub fn disable() -> Result<(), String> {
     }
 }
 
-/// The registered command, if any.
-pub fn current_command() -> Option<String> {
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let key = hkcu.open_subkey(RUN_KEY).ok()?;
-    key.get_value(VALUE_NAME).ok()
-}
-
 /// Enabled only when the Run value exists AND points at an executable that
 /// still exists on disk (a stale entry from a moved install reads as off,
 /// and re-enabling overwrites it).
 pub fn is_enabled() -> bool {
-    match current_command() {
+    match run_value() {
         Some(cmd) => exe_from_command(&cmd)
             .map(|p| Path::new(&p).exists())
             .unwrap_or(false),
         None => false,
     }
+}
+
+/// The registered Run command, if any.
+fn run_value() -> Option<String> {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let key = hkcu.open_subkey(RUN_KEY).ok()?;
+    key.get_value(VALUE_NAME).ok()
 }
 
 /// Extract the executable path from a Run-style command (quoted or bare).

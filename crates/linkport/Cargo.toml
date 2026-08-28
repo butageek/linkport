@@ -5,14 +5,18 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+default-run = "linkport"
 
 [[bin]]
+# The app itself (Windows GUI subsystem, windowless): OS-facing URL
+# handler, portal daemon + tray ("serve" or no arguments).
 name = "linkport"
 path = "src/bin/linkport.rs"
 
 [[bin]]
-name = "linkport-open"
-path = "src/bin/linkport_open.rs"
+# Terminal tool: test, register, browsers, portal-url, dev-mode serve.
+name = "linkport-cli"
+path = "src/bin/linkport_cli.rs"
 
 [dependencies]
 linkport-core = { workspace = true }
@@ -33,3 +37,8 @@ tower-http = { workspace = true }
 [target.'cfg(windows)'.dependencies]
 tray-icon = { workspace = true }
 windows-sys = { workspace = true }
+
+[build-dependencies]
+# Embeds resources/icon.ico into the exes (Settings/Start-menu icons);
+# cross-compiled via mingw windres.
+winresource = "0.1"

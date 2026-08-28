@@ -9,7 +9,7 @@
 //!    Settings > Apps > Default apps > Linkport > set default for HTTP/HTTPS.
 //!
 //! After that, Windows invokes the registered shell open command (the
-//! console-less `linkport-open.exe` handler) for every clicked link.
+//! console-less `linkport.exe` handler) for every clicked link.
 
 use std::path::Path;
 use winreg::enums::*;
@@ -18,25 +18,32 @@ use winreg::RegKey;
 const APP_REG_PATH: &str = r"Software\Clients\StartMenuInternet\Linkport";
 const PROG_ID: &str = "Linkport.URL";
 
-pub fn register(exe: &Path, open_command: &str) -> Result<(), String> {
-    let _exe = exe.display().to_string();
+pub fn register(_exe: &Path, open_command: &str) -> Result<(), String> {
+    let icon = icon_source(open_command);
     let run = || -> std::io::Result<()> {
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
 
         // 1. Protocol ProgId: HKCU\Software\Classes\Linkport.URL.
         //    The shell open command points at the console-less handler
-        //    (linkport-open.exe) so no console window flashes on link clicks.
+        //    (linkport.exe) so no console window flashes on link clicks.
         let (prog, _) = hkcu.create_subkey(format!(r"Software\Classes\{PROG_ID}"))?;
         prog.set_value("URL Protocol", &"")?;
         let (cmd, _) =
             hkcu.create_subkey(format!(r"Software\Classes\{PROG_ID}\shell\open\command"))?;
         cmd.set_value("", &open_command)?;
+        let (prog_icon, _) =
+            hkcu.create_subkey(format!(r"Software\Classes\{PROG_ID}\DefaultIcon"))?;
+        prog_icon.set_value("", &icon)?;
 
         // 2. StartMenuInternet client with URL capabilities.
         let (client, _) = hkcu.create_subkey(APP_REG_PATH)?;
         client.set_value("", &"Linkport")?;
         let (client_cmd, _) = hkcu.create_subkey(format!(r"{APP_REG_PATH}\shell\open\command"))?;
         client_cmd.set_value("", &open_command)?;
+        // Default apps / Start menu take the entry's icon from here (and fall
+        // back to the embedded exe icon — both point at linkport.exe).
+        let (client_icon, _) = hkcu.create_subkey(format!(r"{APP_REG_PATH}\DefaultIcon"))?;
+        client_icon.set_value("", &icon)?;
         let (caps, _) = hkcu.create_subkey(format!(r"{APP_REG_PATH}\Capabilities"))?;
         caps.set_value("ApplicationName", &"Linkport")?;
         caps.set_value(
@@ -73,4 +80,17 @@ pub fn is_registered() -> bool {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     hkcu.open_subkey(format!(r"{APP_REG_PATH}\Capabilities\URLAssociations"))
         .is_ok()
+}
+
+/// `<handler exe>,0` icon reference (Chrome-style) derived from the shell
+/// open command, e.g. `"C:\...\linkport.exe" "%1"` →
+/// `C:\...\linkport.exe,0`.
+fn icon_source(open_command: &str) -> String {
+    let cmd = open_command.trim();
+    let exe = cmd
+        .strip_prefix('"')
+        .and_then(|s| s.split_once('"').map(|(e, _)| e))
+        .or_else(|| cmd.split_once(' ').map(|(e, _)| e))
+        .unwrap_or(cmd);
+    format!("{exe},0")
 }

@@ -1,7 +1,7 @@
 //! The portal daemon: axum HTTP server on 127.0.0.1 serving the JSON API
 //! and the embedded SPA, with token auth and DNS-rebinding protection.
 
-use crate::{api, paths};
+use crate::{api, open, paths};
 use anyhow::{Context, Result};
 use axum::extract::{Request, State};
 use axum::http::{header, HeaderValue, StatusCode, Uri};
@@ -9,6 +9,7 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
+use linkport_core::engine::{self, Outcome};
 use rust_embed::RustEmbed;
 use std::net::SocketAddr;
 
@@ -26,6 +27,9 @@ pub struct AppState {
 pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
     let cfg = paths::load_or_default();
     let port = port_override.unwrap_or(cfg.portal.port);
+    // Only read on Windows (the first-run portal pop below is Windows-only);
+    // must be captured before `ensure_token` creates the file.
+    #[cfg(windows)]
     let token_existed = paths::token_path().exists();
     let token = paths::ensure_token()?;
     let state = AppState { token, port };
@@ -53,7 +57,7 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
             .route("/api/config", get(api::get_config).put(api::put_config))
             .route("/api/browsers", get(api::browsers))
             .route("/api/test", post(api::test_url))
-            .route("/api/events", get(api::events))
+            .route("/api/events", get(api::events).delete(api::clear_events))
             .route("/api/register", post(api::register))
             .route("/api/unregister", post(api::unregister))
             .with_state(state.clone())
@@ -92,6 +96,15 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
             open_portal_url(&state);
         }
 
+        // Keep a Start Menu entry so the daemon can be restarted from Start
+        // after a tray Quit (created once; cheap existence check otherwise).
+        #[cfg(windows)]
+        if let Some(main_exe) = crate::main_binary_path() {
+            if let Err(e) = linkport_win::shortcut::ensure_start_menu_shortcut(&main_exe) {
+                eprintln!("linkport: start menu shortcut: {e}");
+            }
+        }
+
         axum::serve(listener, app)
             .with_graceful_shutdown(async move {
                 let mut rx = quit_rx;
@@ -111,13 +124,33 @@ pub fn portal_url_string(state: &AppState) -> String {
     format!("http://127.0.0.1:{}/?token={}", state.port, state.token)
 }
 
-/// Open the portal in a real browser — bypassing Linkport's own routing, so
-/// it works even on a fresh install where Linkport is the system default
-/// browser but no rules or browsers are configured yet.
-/// Resolution order: configured default browser → any configured browser →
-/// first registry-discovered browser → system handler.
+/// Open the portal in a real browser.
+///
+/// The URL goes through the rule engine first, so users can pin the portal
+/// to a browser with a rule (e.g. `*.127.0.0.1` → Chrome). When routing
+/// can't decide (fresh install, blocked, no match, paused, launch failure)
+/// it falls back to: configured default browser → any configured browser →
+/// first registry-discovered browser → system handler. The fallback never
+/// routes through Linkport itself, so it works even when Linkport is the
+/// system default browser and nothing is configured yet.
 pub fn open_portal_url(state: &AppState) {
     let url = portal_url_string(state);
+
+    let cfg = paths::load_or_default();
+    if !paths::is_paused() {
+        let decision = engine::evaluate(&cfg, &url);
+        let launched = match &decision.outcome {
+            Outcome::RuleMatched {
+                target, incognito, ..
+            } => open::launch_browser(&cfg, target, &url, *incognito).is_ok(),
+            Outcome::Default { target } => open::launch_browser(&cfg, target, &url, false).is_ok(),
+            Outcome::Blocked { .. } | Outcome::NoMatch => false,
+        };
+        if launched {
+            return;
+        }
+    }
+
     if let Some(browser) = portal_browser() {
         let launched = linkport_core::launcher::launch(&browser, &url, false).is_ok();
         if launched {
@@ -129,10 +162,12 @@ pub fn open_portal_url(state: &AppState) {
 
 fn portal_browser() -> Option<linkport_core::Browser> {
     let cfg = paths::load_or_default();
-    if let Some(id) = &cfg.default_browser {
-        if let Some(b) = cfg.browsers.get(id) {
-            return Some(b.clone());
-        }
+    if let Some(b) = cfg
+        .default_browser
+        .as_deref()
+        .and_then(|id| cfg.browsers.get(id))
+    {
+        return Some(b.clone());
     }
     if let Some((_, b)) = cfg.browsers.iter().next() {
         return Some(b.clone());
@@ -140,7 +175,7 @@ fn portal_browser() -> Option<linkport_core::Browser> {
     linkport_win::discover_browsers().first().map(|d| {
         let (exe, args) = linkport_core::launcher::parse_command_template(&d.command);
         linkport_core::Browser {
-            display_name: d.name.clone(),
+            display_name: d.display_name.clone(),
             exe,
             args,
             incognito_args: None,
@@ -199,7 +234,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 /// Open a URL with the system handler (default browser) without flashing a
-/// console window. Used by `linkport serve --open`.
+/// console window. Used by `linkport-cli serve --open`.
 fn open_in_system_browser(url: &str) {
     #[cfg(windows)]
     {

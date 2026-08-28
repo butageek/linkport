@@ -122,18 +122,25 @@ fn matches_rule(rule: &Rule, url: &str, host: Option<&str>, scheme: Option<&str>
         }
     }
     if let Some(pat) = &rule.host_glob {
-        let matcher = match Glob::new(pat) {
-            Ok(g) => g.compile_matcher(),
-            Err(e) => return MatchResult::No(format!("invalid host_glob: {e}")),
-        };
-        // Cookie-style semantics: `*.example.com` also matches `example.com`
-        // itself, so "route everything from this domain" does what users mean.
-        let bare = pat
+        // Cookie-domain semantics: a host matcher covers the domain itself
+        // and every subdomain at any depth — `example.com` matches
+        // `a.example.com` and `x.a.example.com` too. The `*.` prefix is an
+        // accepted alias (`*.example.com` behaves identically); patterns
+        // with other wildcards fall back to glob matching.
+        let pat_lower = pat.to_lowercase();
+        let base = pat_lower
             .strip_prefix("*.")
-            .and_then(|p| Glob::new(p).ok())
-            .map(|g| g.compile_matcher());
+            .unwrap_or(&pat_lower)
+            .to_string();
         let matched = match host {
-            Some(h) => matcher.is_match(h) || bare.as_ref().is_some_and(|m| m.is_match(h)),
+            Some(h) => {
+                let h = h.to_lowercase();
+                if base.chars().any(|c| matches!(c, '*' | '?' | '[')) {
+                    glob_matches(pat, &h) || glob_matches(&base, &h)
+                } else {
+                    h == base || h.ends_with(&format!(".{base}"))
+                }
+            }
             None => false,
         };
         if !matched {
@@ -150,6 +157,12 @@ fn matches_rule(rule: &Rule, url: &str, host: Option<&str>, scheme: Option<&str>
         }
     }
     MatchResult::Match
+}
+
+fn glob_matches(pattern: &str, host: &str) -> bool {
+    Glob::new(pattern)
+        .map(|g| g.compile_matcher().is_match(host))
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -245,6 +258,23 @@ mod tests {
             evaluate(&c2, "http://127.0.0.1:14200/").outcome,
             Outcome::RuleMatched { .. }
         ));
+        // a bare host covers itself and every subdomain (cookie-domain style)
+        let c3 = cfg(vec![rule("d", Some("example.com"), "ff")], None);
+        for url in [
+            "https://example.com/",
+            "https://a.example.com/",
+            "https://deep.a.example.com/",
+        ] {
+            assert!(
+                matches!(evaluate(&c3, url).outcome, Outcome::RuleMatched { .. }),
+                "bare host should match {url}"
+            );
+        }
+        // the suffix must respect the dot boundary
+        assert_eq!(
+            evaluate(&c3, "https://notexample.com/").outcome,
+            Outcome::NoMatch
+        );
     }
 
     #[test]

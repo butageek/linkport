@@ -1,88 +1,39 @@
-//! `linkport` CLI entry point (console binary).
+//! The app itself: GUI-subsystem (windowless) entry point.
+//!
+//! Three invocations:
+//! - `linkport.exe "<url>"` — the OS-facing URL handler registered in the
+//!   registry's shell open command. No console window ever flashes;
+//!   failures are recorded in the event log and shown in the portal.
+//! - `linkport.exe serve`  — start the portal daemon (used by the login
+//!   auto-start entry, so nothing flashes at sign-in either).
+//! - `linkport.exe` (no arguments) — double-click / Start Menu launch:
+//!   start the daemon, or open the portal if one is already running. This
+//!   is how the daemon comes back after a tray Quit.
+//!
+//! Terminal/debug workflows live in the sibling `linkport-cli.exe`.
 
-use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
-use linkport_core::config;
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
-#[derive(Parser)]
-#[command(
-    name = "linkport",
-    version,
-    about = "Linkport — rule-based browser router with a web portal"
-)]
-struct Cli {
-    #[command(subcommand)]
-    command: Commands,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    /// Create the default config file (if missing) and print its path.
-    Init,
-    /// Route a URL through the rules and open it. Console hot path
-    /// (the OS-facing handler is linkport-open, which has no console).
-    Open { url: String },
-    /// Run the web portal daemon on localhost.
-    Serve {
-        /// Override the portal port (default: from config, 14200).
-        #[arg(long)]
-        port: Option<u16>,
-        /// Open the portal in the system browser after starting.
-        #[arg(long)]
-        open: bool,
-    },
-    /// Register Linkport as a default-browser candidate (Windows).
-    Register {
-        /// Path of the executable to register (default: this binary).
-        #[arg(long)]
-        exe: Option<std::path::PathBuf>,
-    },
-    /// Remove Linkport's default-browser registration (Windows).
-    Unregister,
-    /// List configured browsers and browsers discovered on this system.
-    Browsers,
-    /// Dry-run a URL through the rules and print the decision trace.
-    Test { url: String },
-    /// Print the portal URL including the auth token.
-    PortalUrl,
-}
-
-fn main() -> Result<()> {
-    match Cli::parse().command {
-        Commands::Init => {
-            let path = linkport::paths::config_path();
-            if !path.exists() {
-                config::save(&path, &config::Config::default())
-                    .context("failed to write default config")?;
-                println!("created {}", path.display());
-            } else {
-                println!("{}", path.display());
-            }
-        }
-        Commands::Open { url } => linkport::open::open_url(&url)?,
-        Commands::Serve { port, open } => linkport::portal::serve(port, open)?,
-        Commands::Register { exe } => {
-            let exe = exe
-                .or_else(|| std::env::current_exe().ok())
-                .context("could not determine executable path")?;
-            let handler = linkport::default_handler_command();
-            linkport_win::register(&exe, &handler).map_err(anyhow::Error::msg)?;
-            println!("Registered Linkport as a browser candidate.");
-            println!("Handler: {handler}");
-            println!("Now open Windows Settings > Apps > Default apps > Linkport and");
-            println!("set it as the default for HTTP and HTTPS.");
-        }
-        Commands::Unregister => {
-            linkport_win::unregister().map_err(anyhow::Error::msg)?;
-            println!("Unregistered.");
-        }
-        Commands::Browsers => linkport::open::list_browsers()?,
-        Commands::Test { url } => linkport::open::test_url(&url)?,
-        Commands::PortalUrl => {
-            let token = linkport::paths::ensure_token()?;
-            let port = linkport::paths::load_or_default().portal.port;
-            println!("http://127.0.0.1:{port}/?token={token}");
-        }
+fn main() {
+    let arg = std::env::args().nth(1).unwrap_or_default();
+    let arg = arg.trim();
+    if arg.is_empty() || arg == "serve" {
+        start_daemon();
+        return;
     }
-    Ok(())
+    let _ = linkport::open::open_url(arg);
+}
+
+/// Launched bare: become the daemon unless one is already listening on the
+/// configured port — in that case surface the portal (the daemon may only
+/// be missing its tray icon, e.g. after an Explorer restart).
+fn start_daemon() {
+    let port = linkport::paths::load_or_default().portal.port;
+    if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+        if let Ok(token) = linkport::paths::ensure_token() {
+            linkport::portal::open_portal_url(&linkport::portal::AppState { token, port });
+        }
+        return;
+    }
+    let _ = linkport::portal::serve(None, false);
 }

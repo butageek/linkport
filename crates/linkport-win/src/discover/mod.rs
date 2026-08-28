@@ -4,6 +4,6 @@ mod imp;
 mod stub;
 
 #[cfg(windows)]
-pub use imp::{discover_browsers, DiscoveredBrowser};
+pub use imp::{discover_browsers, system_default_exe, DiscoveredBrowser};
 #[cfg(not(windows))]
-pub use stub::{discover_browsers, DiscoveredBrowser};
+pub use stub::{discover_browsers, system_default_exe, DiscoveredBrowser};

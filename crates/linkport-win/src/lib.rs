@@ -7,10 +7,7 @@
 pub mod autostart;
 mod discover;
 mod registry;
+pub mod shortcut;
 
-pub use autostart::{current_command, disable, enable, is_enabled};
-pub use discover::{discover_browsers, DiscoveredBrowser};
+pub use discover::{discover_browsers, system_default_exe, DiscoveredBrowser};
 pub use registry::{is_registered, register, unregister};
-
-/// Result type for Windows integration operations.
-pub type Result<T> = std::result::Result<T, String>;
