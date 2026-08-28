@@ -1,0 +1,51 @@
+Linkport - quick start
+======================
+
+Linkport routes every link you click to the right browser, based on rules
+you define. Setup takes about 3 minutes. No admin rights needed.
+
+1. UNZIP TO A PERMANENT FOLDER
+   Extract everything to a folder you will keep, e.g.  C:\Tools\Linkport
+   (Linkport registers its install path with Windows - if you move the
+   folder later, open the portal > Settings and press Register again).
+
+2. START IT
+   Double-click  linkport.exe .
+   - If Windows shows "Windows protected your PC" (the app is unsigned),
+     click "More info" and then "Run anyway".
+   - A tray icon appears and the management portal opens in your browser.
+
+3. ADD YOUR BROWSERS
+   In the portal, open "Browsers":
+   - Click "Add" on each browser you want to route to (they are detected
+     automatically), then "Save".
+   Linkport automatically uses your current system default browser as its
+   default (the browser for links no rule matches) - change it later on
+   "Settings" if you like.
+
+4. MAKE LINKPORT YOUR DEFAULT BROWSER
+   In the portal: Settings > "Register".
+   Then open Windows Settings > Apps > Default apps > Linkport and set it
+   as the default for HTTP and HTTPS. (Windows requires this step to be
+   done by hand - no app can do it for you.)
+
+5. START AT SIGN-IN (RECOMMENDED)
+   Right-click the tray icon and enable "Start Linkport when I sign in".
+
+DAILY USE
+- Rules: portal > "Rules" - first match wins. The Dashboard can create a
+  rule straight from any link in your history.
+- Portal: left-click the tray icon (or Start menu > "Linkport").
+- Pause routing: right-click the tray icon > "Pause routing" - everything
+  goes to your default browser until you unpause.
+- If you quit from the tray, restart via the Start-menu "Linkport" entry
+  or by double-clicking linkport.exe again.
+
+TROUBLESHOOTING
+- A link opened in the wrong browser? Portal > Dashboard > "Try a URL"
+  shows which rule matched and why.
+- Every routing decision is logged to  %APPDATA%\linkport\events.jsonl
+- The portal listens on 127.0.0.1 only, port 14200 by default (port is in
+  %APPDATA%\linkport\config.toml).
+
+Linkport is MIT-licensed. See LICENSE in this folder.

@@ -1,0 +1,41 @@
+# Release: pushing a version tag (v0.1.0) builds the Windows zip via
+# scripts/package.sh and publishes it as a GitHub Release.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # required to create the release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Install mingw-w64 (windows-gnu cross-linking)
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build release zip (frontend + exes + QUICK-START + LICENSE)
+        run: ./scripts/package.sh
+
+      - name: Create GitHub Release with the zip attached
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/*.zip \
+            --title "Linkport ${GITHUB_REF_NAME}" \
+            --generate-notes
