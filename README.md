@@ -1,5 +1,11 @@
 # Linkport
 
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d6)
+![Language](https://img.shields.io/badge/built%20with-Rust-dea584)
+
+**Repo:** [github.com/butageek/linkport](https://github.com/butageek/linkport) · Issues and PRs welcome.
+
 **Linkport** is a rule-based browser router for Windows with a web portal for
 managing the rules. Register it as your default browser and every link you
 click — from email, Slack, PDFs, anywhere — is routed to the right browser or
