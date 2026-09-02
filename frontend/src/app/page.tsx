@@ -178,6 +178,13 @@ function TestCard({ browserNames }: { browserNames: Record<string, string> }) {
               <span className="text-muted-foreground">Opened in:</span>
               <OutcomeBadge outcome={decision.outcome} browserNames={browserNames} />
             </div>
+            {decision.resolved_url && (
+              <p className="text-xs text-muted-foreground break-all">
+                Linkport followed the redirect to{" "}
+                <span className="font-medium">{decision.resolved_url}</span> and routed
+                by that destination.
+              </p>
+            )}
             <div className="rounded-md border">
               {decision.trace.map((t, i) => (
                 <div
@@ -259,7 +266,9 @@ function RecentEvents({
                   <TableCell className="text-muted-foreground">
                     {new Date(e.timestamp).toLocaleString()}
                   </TableCell>
-                  <TableCell className="max-w-96 truncate">{e.url}</TableCell>
+                  <TableCell className="max-w-96 truncate" title={e.origin_url ?? e.url}>
+                    {e.url}
+                  </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
                       <OutcomeBadge outcome={e.outcome} browserNames={browserNames} />
@@ -273,7 +282,7 @@ function RecentEvents({
                   <TableCell className="text-right">
                     {e.host && (
                       <Link
-                        href={`/rules?host=${encodeURIComponent(e.host)}`}
+                        href={`/rules?${new URLSearchParams({ host: e.host, url: e.url })}`}
                         className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
                       >
                         <Plus /> from {e.host}

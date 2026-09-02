@@ -12,3 +12,8 @@ frontend/out/
 .DS_Store
 /dist
 AGENTS.local.md
+.env*
+
+# Editors
+.vscode/
+.idea/

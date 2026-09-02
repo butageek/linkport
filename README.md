@@ -42,10 +42,16 @@ Two binaries ship from one crate and must sit side by side:
 ### Features
 
 - **Rule engine** — ordered rules, first match wins. Each rule combines
-  matchers with AND: host, full-URL regex, scheme. Host matchers use
-  cookie-domain semantics: `example.com` matches that host **and** all of
-  its subdomains (`*.example.com` is an equivalent alias). Targets are
-  browser ids (optionally incognito/private) or `block`.
+  matchers with AND: host, plain-text URL contains, full-URL regex, scheme.
+  Host matchers use cookie-domain semantics: `example.com` matches that
+  host **and** all of its subdomains (`*.example.com` is an equivalent
+  alias). Targets are browser ids (optionally incognito/private) or
+  `block`.
+- **Redirect resolution** — links through tracker/shortener domains
+  (configured in Settings) that match no rule are followed to their final
+  destination — headers only, never page content, only configured hosts —
+  and routed by that destination, so one email tracker can land in
+  different browsers per real target.
 - **Web portal** (Next.js 15 + TypeScript + shadcn/ui, embedded in the
   binary): dashboard with live dry-run trace + link history and one-click
   "create rule from this host", rules editor with reorder/toggles, browsers
@@ -129,6 +135,7 @@ hand:
 ```toml
 version = 1
 default_browser = "firefox"
+redirect_hosts = ["track.smtpsendemail.com", "bit.ly"]
 
 [portal]
 port = 14200
@@ -159,12 +166,15 @@ target = "block"
 
 ## Roadmap
 
-- [ ] Native picker dialog for ambiguous links (websteer-style)
-- [ ] "Browser already running" heuristic (BrowserPicker-style)
-- [ ] URL shortener expansion in the trace view
+- [ ] "Browser already running" heuristic (route to the browser you're
+      currently in)
+- [ ] Shift-to-choose override: hold Shift while clicking a link to pick a
+      browser once (optionally saving the choice as a rule) — opt-in only,
+      never an unprompted dialog
 - [ ] Installer + code signing (today: `./scripts/package.sh` builds a
       shareable zip with a quick-start guide; SmartScreen warns on the
       unsigned exes — recipients click "More info" → "Run anyway")
+- [ ] winget manifest once the release has some real-world use
 - [ ] Linux support (`.desktop` + `xdg-settings`) — the core is portable
 
 ## License

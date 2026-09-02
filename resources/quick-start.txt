@@ -49,3 +49,9 @@ TROUBLESHOOTING
   %APPDATA%\linkport\config.toml).
 
 Linkport is MIT-licensed. See LICENSE in this folder.
+
+REDIRECTING LINKS (OPTIONAL)
+- Email trackers and URL shorteners hide the real destination behind one
+  domain. Settings > "Redirecting hosts": add e.g. track.example.com and
+  Linkport will follow such links to their final destination and route by
+  that - so the same tracker can open in different browsers per target.

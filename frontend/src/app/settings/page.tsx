@@ -17,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
+import { Textarea } from "@/components/ui/textarea";
 
 export default function SettingsPage() {
   const [config, setConfig] = useState<Config | null>(null);
@@ -91,57 +92,81 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             {config && (
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="default-browser">Default browser</Label>
-                <NativeSelect
-                  id="default-browser"
-                  value={currentDefault}
-                  onChange={(e) => {
-                    setConfig({
-                      ...config,
-                      default_browser: e.target.value || null,
-                    });
-                    setDirty(true);
-                  }}
-                >
-                  {browserEntries.length === 0 ? (
-                    <option value="">(no browsers configured yet)</option>
-                  ) : (
-                    browserEntries.map(([id, b]) => (
-                      <option key={id} value={id}>
-                        {b.display_name}
-                      </option>
-                    ))
-                  )}
-                </NativeSelect>
-                <p className="text-xs text-muted-foreground">
-                  Used when no rule matches. Pre-set to your system default
-                  browser on first save; Linkport keeps a valid choice if you
-                  delete a browser.
-                </p>
-              </div>
-            )}
-            {config && (
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="portal-port">Portal port</Label>
-                <Input
-                  id="portal-port"
-                  type="number"
-                  min={1024}
-                  max={65535}
-                  value={config.portal.port}
-                  onChange={(e) => {
-                    setConfig({
-                      ...config,
-                      portal: { ...config.portal, port: Number(e.target.value) },
-                    });
-                    setDirty(true);
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Takes effect after restarting <code>linkport-cli serve</code>.
-                </p>
-              </div>
+              <>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="default-browser">Default browser</Label>
+                  <NativeSelect
+                    id="default-browser"
+                    value={currentDefault}
+                    onChange={(e) => {
+                      setConfig({
+                        ...config,
+                        default_browser: e.target.value || null,
+                      });
+                      setDirty(true);
+                    }}
+                  >
+                    {browserEntries.length === 0 ? (
+                      <option value="">(no browsers configured yet)</option>
+                    ) : (
+                      browserEntries.map(([id, b]) => (
+                        <option key={id} value={id}>
+                          {b.display_name}
+                        </option>
+                      ))
+                    )}
+                  </NativeSelect>
+                  <p className="text-xs text-muted-foreground">
+                    Used when no rule matches. Pre-set to your system default
+                    browser on first save; Linkport keeps a valid choice if you
+                    delete a browser.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="portal-port">Portal port</Label>
+                  <Input
+                    id="portal-port"
+                    type="number"
+                    min={1024}
+                    max={65535}
+                    value={config.portal.port}
+                    onChange={(e) => {
+                      setConfig({
+                        ...config,
+                        portal: { ...config.portal, port: Number(e.target.value) },
+                      });
+                      setDirty(true);
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Takes effect after restarting <code>linkport-cli serve</code>.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="redirect-hosts">Redirecting hosts (one per line)</Label>
+                  <Textarea
+                    id="redirect-hosts"
+                    value={config.redirect_hosts.join("\n")}
+                    onChange={(e) => {
+                      setConfig({
+                        ...config,
+                        redirect_hosts: e.target.value
+                          .split("\n")
+                          .map((h) => h.trim())
+                          .filter((h) => h.length > 0),
+                      });
+                      setDirty(true);
+                    }}
+                    placeholder={"track.smtpsendemail.com\nbit.ly"}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Links from these hosts that match no rule are followed to their
+                    final destination (headers only), and your rules are evaluated
+                    against that — so email trackers can route per real target.
+                    Only these hosts are ever contacted.
+                  </p>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>

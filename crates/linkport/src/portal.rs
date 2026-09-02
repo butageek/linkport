@@ -71,10 +71,7 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
             .with_context(|| format!("failed to bind {addr}"))?;
 
         println!("Linkport portal listening on http://127.0.0.1:{port}");
-        println!(
-            "Manage your rules at http://127.0.0.1:{port}/?token={}",
-            state.token
-        );
+        println!("Manage your rules at {}", portal_url_string(&state));
 
         if open_browser {
             open_portal_url(&state);

@@ -3,7 +3,7 @@
 
 use crate::paths;
 use anyhow::{Context, Result};
-use linkport_core::engine::{self, Outcome};
+use linkport_core::engine::{self, Decision, Outcome};
 use linkport_core::event;
 use linkport_core::{config, launcher};
 
@@ -12,7 +12,7 @@ use linkport_core::{config, launcher};
 pub fn open_url(url: &str) -> Result<()> {
     let cfg = paths::load_or_default();
 
-    let (outcome, host, result) = if paths::is_paused() {
+    let (outcome, host, resolved, result) = if paths::is_paused() {
         // Routing paused: send everything to the configured default browser.
         let target = cfg
             .default_browser
@@ -21,10 +21,11 @@ pub fn open_url(url: &str) -> Result<()> {
         match target {
             Some(t) => {
                 let result = launch_browser(&cfg, &t, url, false);
-                (Outcome::Default { target: t }, None, result)
+                (Outcome::Default { target: t }, None, None, result)
             }
             None => (
                 Outcome::NoMatch,
+                None,
                 None,
                 Err(anyhow::anyhow!(
                     "routing is paused but no default browser is configured"
@@ -32,31 +33,75 @@ pub fn open_url(url: &str) -> Result<()> {
             ),
         }
     } else {
-        let decision = engine::evaluate(&cfg, url);
+        let decision = decide(&cfg, url);
+        let final_url = decision.resolved_url.as_deref().unwrap_or(url);
         let result = match &decision.outcome {
             Outcome::RuleMatched {
                 target, incognito, ..
-            } => launch_browser(&cfg, target, url, *incognito),
-            Outcome::Default { target } => launch_browser(&cfg, target, url, false),
+            } => launch_browser(&cfg, target, final_url, *incognito),
+            Outcome::Default { target } => launch_browser(&cfg, target, final_url, false),
             // Blocked URLs are swallowed without opening anything.
             Outcome::Blocked { .. } => Ok(()),
             Outcome::NoMatch => Err(anyhow::anyhow!(
                 "no rule matched and no default browser is configured"
             )),
         };
-        (decision.outcome, decision.host, result)
+        (
+            decision.outcome,
+            decision.host,
+            decision.resolved_url,
+            result,
+        )
     };
 
     let error = result.as_ref().err().map(|e| e.to_string());
+    // Event contract: url = what actually opened (the final destination),
+    // origin_url = the clicked link when redirect resolution moved it.
+    let (logged_url, origin_url) = match resolved {
+        Some(final_url) => (final_url, Some(url.to_string())),
+        None => (url.to_string(), None),
+    };
     let _ = event::append(
         &paths::events_path(),
         &event::Event {
             error,
-            ..event::Event::new(url, host, outcome)
+            origin_url,
+            ..event::Event::new(logged_url, host, outcome)
         },
     );
 
     result
+}
+
+/// Evaluate the rules, resolving redirects when the clicked host is a
+/// configured redirector and no rule matched the original URL: the rules
+/// then see the final destination (trackers, shorteners). `decision.url`
+/// stays the clicked link; `decision.resolved_url` carries the final URL.
+pub fn decide(cfg: &config::Config, url: &str) -> Decision {
+    let mut decision = engine::evaluate(cfg, url);
+    if should_resolve_redirects(cfg, &decision) {
+        if let Some(final_url) = crate::redirect::resolve(url) {
+            let mut redirected = engine::evaluate(cfg, &final_url);
+            redirected.url = url.to_string();
+            redirected.resolved_url = Some(final_url);
+            decision = redirected;
+        }
+    }
+    decision
+}
+
+/// Redirect resolution is deliberately gated on both conditions: no rule may
+/// have matched (matched links go straight out — no extra latency), and the
+/// clicked host must be user-configured in `redirect_hosts` (privacy: no
+/// other host is ever contacted).
+fn should_resolve_redirects(cfg: &config::Config, decision: &Decision) -> bool {
+    let unmatched = matches!(decision.outcome, Outcome::Default { .. } | Outcome::NoMatch);
+    let redirector = decision.host.as_deref().is_some_and(|h| {
+        cfg.redirect_hosts
+            .iter()
+            .any(|p| engine::host_pattern_matches(p, h))
+    });
+    unmatched && redirector
 }
 
 pub fn launch_browser(
@@ -76,7 +121,7 @@ pub fn launch_browser(
 
 pub fn test_url(url: &str) -> Result<()> {
     let cfg = paths::load_or_default();
-    let decision = engine::evaluate(&cfg, url);
+    let decision = decide(&cfg, url);
     println!("{}", serde_json::to_string_pretty(&decision)?);
     Ok(())
 }

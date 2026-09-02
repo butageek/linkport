@@ -36,6 +36,7 @@ function emptyRule(): Rule {
     name: "",
     enabled: true,
     host_glob: "",
+    url_contains: "",
     url_regex: "",
     scheme: "",
     target: "",
@@ -46,9 +47,33 @@ function emptyRule(): Rule {
 function matcherSummary(rule: Rule): string[] {
   const parts: string[] = [];
   if (rule.host_glob) parts.push(`host: ${rule.host_glob}`);
+  if (rule.url_contains) parts.push(`contains: ${rule.url_contains}`);
   if (rule.url_regex) parts.push(`regex: ${rule.url_regex}`);
   if (rule.scheme) parts.push(`scheme: ${rule.scheme}`);
   return parts;
+}
+
+// Well-known query parameters that carry the real destination on
+// SSO/redirect interstitials (e.g. Microsoft login).
+const DESTINATION_PARAMS = [
+  "redirect_uri",
+  "goto",
+  "next",
+  "returnTo",
+  "continue",
+  "dest",
+  "destination",
+  "target",
+];
+
+// Pull `param=raw-value` out of the URL so the rule form can prefill it as
+// the distinguishing matcher.
+function destinationParam(url: string): string {
+  for (const p of DESTINATION_PARAMS) {
+    const m = url.match(new RegExp(`[?&]${p}=([^&]*)`));
+    if (m) return `${p}=${m[1]}`;
+  }
+  return "";
 }
 
 export default function RulesPage() {
@@ -57,18 +82,31 @@ export default function RulesPage() {
   // null = form closed; -1 = creating new; >= 0 = editing rules[index]
   const [editing, setEditing] = useState<{ index: number; draft: Rule } | null>(null);
 
+  function updateDraft(patch: Partial<Rule>) {
+    setEditing((prev) => (prev ? { ...prev, draft: { ...prev.draft, ...patch } } : prev));
+  }
+
   useEffect(() => {
     api
       .getConfig()
       .then((c) => setConfig(c))
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
 
-    // Prefill from Dashboard "create rule from host".
-    const host = new URLSearchParams(window.location.search).get("host");
+    // Prefill from Dashboard "create rule from host" — when the history
+    // entry carried a resolved URL with an SSO/redirect destination param,
+    // prefill it as the distinguishing matcher.
+    const params = new URLSearchParams(window.location.search);
+    const host = params.get("host");
     if (host) {
+      const fullUrl = params.get("url") ?? "";
       setEditing({
         index: -1,
-        draft: { ...emptyRule(), name: host, host_glob: host },
+        draft: {
+          ...emptyRule(),
+          name: host,
+          host_glob: host,
+          url_contains: destinationParam(fullUrl),
+        },
       });
     }
   }, []);
@@ -87,6 +125,7 @@ export default function RulesPage() {
     const clean: Rule = {
       ...editing.draft,
       host_glob: editing.draft.host_glob?.trim() || null,
+      url_contains: editing.draft.url_contains?.trim() || null,
       url_regex: editing.draft.url_regex?.trim() || null,
       scheme: editing.draft.scheme?.trim() || null,
       name: editing.draft.name.trim(),
@@ -142,9 +181,7 @@ export default function RulesPage() {
                   id="rule-name"
                   required
                   value={editing.draft.name}
-                  onChange={(e) =>
-                    setEditing({ ...editing, draft: { ...editing.draft, name: e.target.value } })
-                  }
+                  onChange={(e) => updateDraft({ name: e.target.value })}
                   placeholder="Work links"
                 />
               </div>
@@ -154,9 +191,7 @@ export default function RulesPage() {
                   id="rule-target"
                   required
                   value={editing.draft.target}
-                  onChange={(e) =>
-                    setEditing({ ...editing, draft: { ...editing.draft, target: e.target.value } })
-                  }
+                  onChange={(e) => updateDraft({ target: e.target.value })}
                 >
                   <option value="" disabled>
                     choose browser…
@@ -176,20 +211,30 @@ export default function RulesPage() {
                 <Input
                   id="rule-host"
                   value={editing.draft.host_glob ?? ""}
-                  onChange={(e) =>
-                    setEditing({ ...editing, draft: { ...editing.draft, host_glob: e.target.value } })
-                  }
+                  onChange={(e) => updateDraft({ host_glob: e.target.value })}
                   placeholder="example.com (covers its subdomains)"
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="rule-regex">URL regex</Label>
+                <Label htmlFor="rule-contains">URL contains (plain text)</Label>
+                <Input
+                  id="rule-contains"
+                  value={editing.draft.url_contains ?? ""}
+                  onChange={(e) => updateDraft({ url_contains: e.target.value })}
+                  placeholder="redirect_uri=https%3A%2F%2Fsecurity.microsoft.com"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Optional. Text that must appear anywhere in the link — great for
+                  matching a destination inside login/redirect URLs. No escaping
+                  needed; matched case-insensitively.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="rule-regex">URL regex (advanced)</Label>
                 <Input
                   id="rule-regex"
                   value={editing.draft.url_regex ?? ""}
-                  onChange={(e) =>
-                    setEditing({ ...editing, draft: { ...editing.draft, url_regex: e.target.value } })
-                  }
+                  onChange={(e) => updateDraft({ url_regex: e.target.value })}
                   placeholder="docs\\.google\\.com"
                 />
               </div>
@@ -198,9 +243,7 @@ export default function RulesPage() {
                 <Input
                   id="rule-scheme"
                   value={editing.draft.scheme ?? ""}
-                  onChange={(e) =>
-                    setEditing({ ...editing, draft: { ...editing.draft, scheme: e.target.value } })
-                  }
+                  onChange={(e) => updateDraft({ scheme: e.target.value })}
                   placeholder="https, zoommtg, …"
                 />
               </div>
@@ -208,9 +251,7 @@ export default function RulesPage() {
                 <Switch
                   id="rule-incognito"
                   checked={editing.draft.incognito}
-                  onCheckedChange={(v) =>
-                    setEditing({ ...editing, draft: { ...editing.draft, incognito: v } })
-                  }
+                  onCheckedChange={(v) => updateDraft({ incognito: v })}
                 />
                 <Label htmlFor="rule-incognito">Private / incognito window</Label>
               </div>

@@ -11,6 +11,8 @@ export interface Rule {
   name: string;
   enabled: boolean;
   host_glob?: string | null;
+  /** Plain text (case-insensitive) that must appear in the URL. */
+  url_contains?: string | null;
   url_regex?: string | null;
   scheme?: string | null;
   target: string;
@@ -27,6 +29,8 @@ export interface Config {
   default_browser?: string | null;
   browsers: Record<string, Browser>;
   rules: Rule[];
+  /** Host patterns whose unmatched links are routed by redirect destination. */
+  redirect_hosts: string[];
 }
 
 export type Outcome =
@@ -47,6 +51,8 @@ export interface Decision {
   scheme?: string | null;
   outcome: Outcome;
   trace: RuleTrace[];
+  /** Final URL when redirect resolution moved the decision. */
+  resolved_url?: string | null;
 }
 
 export interface EventItem {
@@ -54,6 +60,8 @@ export interface EventItem {
   url: string;
   host?: string | null;
   outcome: Outcome;
+  /** The originally clicked URL when redirects were resolved. */
+  origin_url?: string | null;
   error?: string | null;
 }
 

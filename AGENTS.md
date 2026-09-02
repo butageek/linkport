@@ -85,11 +85,12 @@ the user must re-set the default browser by hand in Settings).
   `registry/` (default-browser registration), `discover/` (StartMenuInternet
   scan + system-default detection), `autostart/` (Run key), `shortcut/`
   (Start-menu `.lnk`).
-- `crates/linkport` — `lib.rs` (`open.rs` hot path, `portal.rs` axum daemon
-  + static SPA serving + auth, `api.rs` JSON API, `tray.rs`) and bins
-  `linkport.rs` (the windowless GUI-subsystem main binary: URL handler +
-  `serve`/no-args daemon) / `linkport_cli.rs` (console CLI: test/register/
-  browsers/dev serve).
+- `crates/linkport` — `lib.rs` (`open.rs` hot path + redirect-aware
+  `decide()`, `redirect.rs` headers-only redirect resolution (ureq),
+  `portal.rs` axum daemon + static SPA serving + auth, `api.rs` JSON API,
+  `tray.rs`) and bins `linkport.rs` (the windowless GUI-subsystem main
+  binary: URL handler + `serve`/no-args daemon) / `linkport_cli.rs`
+  (console CLI: test/register/browsers/dev serve).
 - `frontend/` — Next.js 15 **static export** (`output: 'export'`), React 19,
   shadcn/ui, Tailwind v4. All pages are client components. API client in
   `src/lib/api.ts`, shared types in `src/lib/types.ts` (mirror the Rust
@@ -135,6 +136,15 @@ the user must re-set the default browser by hand in Settings).
   subdomain at any depth, dot-boundary respected (`example.com` matches
   `a.example.com`; `notexample.com` does not). Patterns containing other
   wildcards fall back to `globset` matching (see `matches_rule`).
+- **Redirect resolution** fires only when NO rule matched the original URL
+  AND the clicked host is listed in `config.redirect_hosts` — never for
+  every link (latency, privacy). It follows 3xx `Location` headers
+  (max 5 hops, 5s timeout) without reading response bodies and re-runs the
+  engine on the final URL; the event log stores the final URL plus
+  `origin_url`. Chains that end at an SSO interstitial (e.g.
+  `login.microsoftonline.com`) can be routed precisely with host +
+  `url_contains` on the destination query param (`redirect_uri=…`); the
+  Dashboard "from host" button prefills this from the history entry's URL.
 - **Chrome-style registry commands** parse via
   `launcher::parse_command_template` (`%1` → `{url}`); browsers with no
   `{url}` in args get the URL appended.

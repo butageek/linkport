@@ -40,11 +40,23 @@ pub struct Decision {
     pub scheme: Option<String>,
     pub outcome: Outcome,
     pub trace: Vec<RuleTrace>,
+    /// Set when the link went through redirect resolution: the final URL
+    /// the outcome was evaluated against (`url` stays the clicked link).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_url: Option<String>,
 }
 
 enum MatchResult {
     Match,
     No(String),
+}
+
+fn traced(rule: &Rule, matched: bool, reason: String) -> RuleTrace {
+    RuleTrace {
+        name: rule.name.clone(),
+        matched,
+        reason,
+    }
 }
 
 pub fn evaluate(cfg: &Config, raw_url: &str) -> Decision {
@@ -58,20 +70,12 @@ pub fn evaluate(cfg: &Config, raw_url: &str) -> Decision {
     let mut trace = Vec::new();
     for rule in &cfg.rules {
         if !rule.enabled {
-            trace.push(RuleTrace {
-                name: rule.name.clone(),
-                matched: false,
-                reason: "disabled".to_string(),
-            });
+            trace.push(traced(rule, false, "disabled".to_string()));
             continue;
         }
         match matches_rule(rule, raw_url, host.as_deref(), scheme.as_deref()) {
             MatchResult::Match => {
-                trace.push(RuleTrace {
-                    name: rule.name.clone(),
-                    matched: true,
-                    reason: "matched".to_string(),
-                });
+                trace.push(traced(rule, true, "matched".to_string()));
                 let outcome = if rule.target == TARGET_BLOCK {
                     Outcome::Blocked {
                         rule: rule.name.clone(),
@@ -89,13 +93,10 @@ pub fn evaluate(cfg: &Config, raw_url: &str) -> Decision {
                     scheme,
                     outcome,
                     trace,
+                    resolved_url: None,
                 };
             }
-            MatchResult::No(reason) => trace.push(RuleTrace {
-                name: rule.name.clone(),
-                matched: false,
-                reason,
-            }),
+            MatchResult::No(reason) => trace.push(traced(rule, false, reason)),
         }
     }
 
@@ -109,6 +110,22 @@ pub fn evaluate(cfg: &Config, raw_url: &str) -> Decision {
         scheme,
         outcome,
         trace,
+        resolved_url: None,
+    }
+}
+
+/// Cookie-domain host matching shared by rule matching and redirect-host
+/// lookups: the pattern (with an optional `*.` prefix stripped) matches the
+/// host itself and any subdomain at any depth, dot-boundary respected.
+/// Patterns containing other wildcards fall back to glob matching.
+pub fn host_pattern_matches(pattern: &str, host: &str) -> bool {
+    let host = host.to_lowercase();
+    let pat_lower = pattern.to_lowercase();
+    let base = pat_lower.strip_prefix("*.").unwrap_or(&pat_lower);
+    if base.chars().any(|c| matches!(c, '*' | '?' | '[')) {
+        glob_matches(pattern, &host) || glob_matches(base, &host)
+    } else {
+        host == base || host.ends_with(&format!(".{base}"))
     }
 }
 
@@ -122,29 +139,14 @@ fn matches_rule(rule: &Rule, url: &str, host: Option<&str>, scheme: Option<&str>
         }
     }
     if let Some(pat) = &rule.host_glob {
-        // Cookie-domain semantics: a host matcher covers the domain itself
-        // and every subdomain at any depth — `example.com` matches
-        // `a.example.com` and `x.a.example.com` too. The `*.` prefix is an
-        // accepted alias (`*.example.com` behaves identically); patterns
-        // with other wildcards fall back to glob matching.
-        let pat_lower = pat.to_lowercase();
-        let base = pat_lower
-            .strip_prefix("*.")
-            .unwrap_or(&pat_lower)
-            .to_string();
-        let matched = match host {
-            Some(h) => {
-                let h = h.to_lowercase();
-                if base.chars().any(|c| matches!(c, '*' | '?' | '[')) {
-                    glob_matches(pat, &h) || glob_matches(&base, &h)
-                } else {
-                    h == base || h.ends_with(&format!(".{base}"))
-                }
-            }
-            None => false,
-        };
+        let matched = host.is_some_and(|h| host_pattern_matches(pat, h));
         if !matched {
             return MatchResult::No(format!("host_glob {pat:?} did not match host {host:?}"));
+        }
+    }
+    if let Some(needle) = &rule.url_contains {
+        if !url.to_lowercase().contains(&needle.to_lowercase()) {
+            return MatchResult::No(format!("url_contains {needle:?} not in url"));
         }
     }
     if let Some(pat) = &rule.url_regex {
@@ -187,6 +189,7 @@ mod tests {
             default_browser: default.map(String::from),
             browsers: BTreeMap::new(),
             rules,
+            redirect_hosts: Vec::new(),
         };
         c.browsers.insert("ff".into(), browser("firefox"));
         c.browsers.insert("chrome".into(), browser("chrome"));
@@ -198,11 +201,57 @@ mod tests {
             name: name.into(),
             enabled: true,
             host_glob: host_glob.map(String::from),
+            url_contains: None,
             url_regex: None,
             scheme: None,
             target: target.into(),
             incognito: false,
         }
+    }
+
+    #[test]
+    fn url_contains_is_case_insensitive_and_anded_with_host() {
+        let mut r = rule("sso", Some("login.example.com"), "ff");
+        r.url_contains = Some("redirect_uri=https%3A%2F%2Fsecurity.example.com".into());
+        let c = cfg(vec![r], None);
+        assert!(matches!(
+            evaluate(
+                &c,
+                "https://login.example.com/auth?redirect_uri=https%3A%2F%2FSECURITY.example.com%2F"
+            )
+            .outcome,
+            Outcome::RuleMatched { .. }
+        ));
+        // substring absent -> no match
+        assert_eq!(
+            evaluate(
+                &c,
+                "https://login.example.com/auth?redirect_uri=https%3A%2F%2Fmail.example.com%2F"
+            )
+            .outcome,
+            Outcome::NoMatch
+        );
+        // substring present but host differs -> no match
+        assert_eq!(
+            evaluate(
+                &c,
+                "https://other.com/auth?redirect_uri=https%3A%2F%2Fsecurity.example.com%2F"
+            )
+            .outcome,
+            Outcome::NoMatch
+        );
+    }
+
+    #[test]
+    fn host_pattern_matches_cookie_domain() {
+        assert!(host_pattern_matches("example.com", "example.com"));
+        assert!(host_pattern_matches("example.com", "a.example.com"));
+        assert!(host_pattern_matches("*.example.com", "a.example.com"));
+        assert!(!host_pattern_matches("example.com", "notexample.com"));
+        assert!(!host_pattern_matches(
+            "example.com",
+            "a.example.com.evil.io"
+        ));
     }
 
     #[test]

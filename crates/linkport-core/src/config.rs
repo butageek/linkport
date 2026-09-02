@@ -22,6 +22,13 @@ pub struct Config {
     pub browsers: BTreeMap<String, Browser>,
     /// Ordered rules; the first matching rule wins.
     pub rules: Vec<Rule>,
+    /// Host patterns (cookie-domain style, like rule hosts) whose links are
+    /// known to redirect (trackers, shorteners). When a link from one of
+    /// these hosts matches no rule, Linkport follows the redirects and
+    /// evaluates the rules against the final destination instead. Only
+    /// these hosts are ever contacted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub redirect_hosts: Vec<String>,
 }
 
 impl Default for Config {
@@ -32,6 +39,7 @@ impl Default for Config {
             default_browser: None,
             browsers: BTreeMap::new(),
             rules: Vec::new(),
+            redirect_hosts: Vec::new(),
         }
     }
 }
@@ -87,6 +95,10 @@ pub struct Rule {
     /// Cookie-style: `*.example.com` also matches `example.com` itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_glob: Option<String>,
+    /// Plain text (case-insensitive) that must appear anywhere in the URL —
+    /// the no-regex-needed alternative to `url_regex` for query strings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url_contains: Option<String>,
     /// Regex matched against the full URL.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url_regex: Option<String>,
@@ -165,7 +177,11 @@ pub fn validate(cfg: &Config) -> Vec<String> {
                 ));
             }
         }
-        if rule.host_glob.is_none() && rule.url_regex.is_none() && rule.scheme.is_none() {
+        if rule.host_glob.is_none()
+            && rule.url_contains.is_none()
+            && rule.url_regex.is_none()
+            && rule.scheme.is_none()
+        {
             warnings.push(format!(
                 "rule {:?} has no matcher and will match every URL",
                 rule.name
@@ -210,6 +226,7 @@ mod tests {
             name: "work".into(),
             enabled: true,
             host_glob: Some("*.corp.example".into()),
+            url_contains: None,
             url_regex: None,
             scheme: None,
             target: "firefox".into(),

@@ -5,6 +5,7 @@ pub mod api;
 pub mod open;
 pub mod paths;
 pub mod portal;
+pub mod redirect;
 #[cfg(windows)]
 pub mod tray;
 

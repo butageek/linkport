@@ -11,9 +11,14 @@ use std::path::Path;
 pub struct Event {
     /// RFC 3339 local timestamp.
     pub timestamp: String,
+    /// The URL that was opened (after redirect resolution, if any).
     pub url: String,
     pub host: Option<String>,
     pub outcome: Outcome,
+    /// The originally clicked URL when redirect resolution moved it to a
+    /// different final destination (trackers, shorteners).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_url: Option<String>,
     /// Set when routing or launching failed; shown in the portal history.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -26,6 +31,7 @@ impl Event {
             url: url.into(),
             host,
             outcome,
+            origin_url: None,
             error: None,
         }
     }

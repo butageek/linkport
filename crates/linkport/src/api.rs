@@ -4,7 +4,7 @@ use crate::{paths, portal::AppState};
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::Json;
-use linkport_core::engine::{self, Decision};
+use linkport_core::engine::Decision;
 use linkport_core::event::{self, Event};
 use linkport_core::{config, launcher};
 use serde::Deserialize;
@@ -23,7 +23,7 @@ pub async fn status(State(state): State<AppState>) -> Json<Value> {
         "paused": paths::is_paused(),
         "autostart": linkport_win::autostart::is_enabled(),
         "config_path": paths::config_path().display().to_string(),
-        "portal_url": format!("http://127.0.0.1:{}/?token={}", state.port, state.token),
+        "portal_url": crate::portal::portal_url_string(&state),
         "default_browser": cfg.default_browser,
         "rules_count": cfg.rules.len(),
         "browsers_count": cfg.browsers.len(),
@@ -99,7 +99,7 @@ pub struct TestBody {
 
 pub async fn test_url(Json(body): Json<TestBody>) -> Json<Decision> {
     let cfg = paths::load_or_default();
-    Json(engine::evaluate(&cfg, &body.url))
+    Json(crate::open::decide(&cfg, &body.url))
 }
 
 #[derive(Deserialize)]
@@ -134,11 +134,10 @@ pub async fn register() -> Json<Value> {
         }),
         Err(e) => Err(e.to_string()),
     };
-    let (ok, detail) = match result {
-        Ok(detail) => (true, detail),
-        Err(detail) => (false, detail),
-    };
-    Json(json!({ "ok": ok, "detail": detail }))
+    match result {
+        Ok(detail) => Json(json!({ "ok": true, "detail": detail })),
+        Err(detail) => Json(json!({ "ok": false, "detail": detail })),
+    }
 }
 
 pub async fn unregister() -> Json<Value> {
