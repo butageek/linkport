@@ -1,12 +1,16 @@
 # Continuous integration: format check, unit tests, the Windows
-# cross-compile check and the portal build — on every push and PR.
+# cross-compile check and the portal build.
+#
+# Deliberately NOT triggered by everyday pushes (those are for
+# preservation only) — run on demand with `gh workflow run CI.yml` or the
+# Actions tab's "Run workflow" button. Pull requests are always checked,
+# and version tags get the full validation via release.yml.
 
 name: CI
 
 on:
-  push:
-    branches: ["**"]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}

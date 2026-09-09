@@ -36,9 +36,11 @@ cargo fmt --all                             # repo is kept fmt-clean; run before
 ```
 
 CI (`.github/workflows/ci.yml`) runs the format check, tests, the Windows
-cross-check and the portal build on every push and PR. Pushing a version
-tag (`v*`) triggers `.github/workflows/release.yml`, which builds the zip
-and publishes it as a GitHub Release.
+cross-check and the portal build **on demand** (`gh workflow run CI.yml`)
+and on every PR — everyday pushes deliberately trigger nothing (they are
+for preservation). Pushing a version tag (`v*`) triggers
+`.github/workflows/release.yml`: tests + `package.sh` + a published
+GitHub Release.
 
 Maintainers keep machine-specific notes (WSL paths, deploy routine) in a
 gitignored `AGENTS.local.md` next to this file.

@@ -108,8 +108,9 @@ cargo check --target x86_64-pc-windows-gnu --workspace --all-targets
 ./scripts/package.sh                          # shareable zip: exes + QUICK-START + LICENSE
 ```
 
-CI runs these on every push/PR; pushing a version tag (`v*`) builds the
-zip and publishes a GitHub Release automatically.
+CI runs on demand (`gh workflow run CI.yml` or the Actions tab) and on
+every pull request; pushing a version tag (`v*`) runs the tests, builds
+the zip and publishes a GitHub Release automatically.
 
 ## Installing as the default browser (Windows)
 
