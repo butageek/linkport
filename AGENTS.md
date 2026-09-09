@@ -35,6 +35,20 @@ cargo build --release --target x86_64-pc-windows-gnu -p linkport
 cargo fmt --all                             # repo is kept fmt-clean; run before committing
 ```
 
+## Release discipline (for AI agents and humans)
+
+- Everyday pushes are for **preservation only** and deliberately trigger
+  no workflows (see ci.yml). NEVER push a version tag unless the user
+  asks for a release ("release", "cut a version", "ship 0.3.0").
+- On a release request: confirm or propose the version (patch = fixes /
+  polish, minor = new features), bump `version` in the workspace
+  `Cargo.toml` **and** `frontend/package.json`, commit,
+  `git pull --rebase origin main` first (the maintainer sometimes edits
+  on the web), tag `vX.Y.Z`, push branch + tag, then watch release.yml
+  and verify the published release + zip; polish notes with
+  `gh release edit vX.Y.Z --notes-file …`.
+- "Run CI" means: `gh workflow run CI.yml` (no release).
+
 CI (`.github/workflows/ci.yml`) runs the format check, tests, the Windows
 cross-check and the portal build **on demand** (`gh workflow run CI.yml`)
 and on every PR — everyday pushes deliberately trigger nothing (they are
