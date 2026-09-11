@@ -12,6 +12,7 @@ use axum::Router;
 use linkport_core::engine::{self, Outcome};
 use rust_embed::RustEmbed;
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 
 // Resolved relative to this crate's manifest (crates/linkport/).
 #[derive(RustEmbed)]
@@ -22,6 +23,19 @@ struct Assets;
 pub struct AppState {
     pub token: String,
     pub port: u16,
+    /// Result of the latest update check (startup or tray), shared with
+    /// the API status endpoint and the tray menu. `None` = not checked yet.
+    pub update: Arc<Mutex<Option<crate::update::UpdateCheck>>>,
+}
+
+impl AppState {
+    pub fn new(token: String, port: u16) -> Self {
+        Self {
+            token,
+            port,
+            update: Arc::new(Mutex::new(None)),
+        }
+    }
 }
 
 pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
@@ -32,7 +46,7 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
     #[cfg(windows)]
     let token_existed = paths::token_path().exists();
     let token = paths::ensure_token()?;
-    let state = AppState { token, port };
+    let state = AppState::new(token, port);
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -60,6 +74,7 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
             .route("/api/events", get(api::events).delete(api::clear_events))
             .route("/api/register", post(api::register))
             .route("/api/unregister", post(api::unregister))
+            .route("/api/update/check", post(api::check_update))
             .with_state(state.clone())
             .route_layer(middleware::from_fn_with_state(state.clone(), auth));
 
@@ -84,6 +99,30 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
         let tray = crate::tray::spawn(state.clone(), quit_tx.clone());
         #[cfg(not(windows))]
         let _ = quit_tx;
+
+        // Update check at startup (config-gated; the tray's manual check
+        // always works). Runs off the async runtime — a slow or offline
+        // network must never delay or block the portal.
+        if cfg.check_updates {
+            let upd_state = state.clone();
+            tokio::task::spawn_blocking(move || {
+                let result = crate::update::check();
+                if result.available {
+                    println!(
+                        "linkport: update available: v{} (running v{}) — see the \
+                         tray menu or the portal",
+                        result.latest.as_deref().unwrap_or("?"),
+                        result.current
+                    );
+                }
+                if let Ok(mut slot) = upd_state.update.lock() {
+                    *slot = Some(result);
+                }
+                // Refresh the tray menu text if a tray is up (no-op without one).
+                #[cfg(windows)]
+                crate::tray::notify_update_checked();
+            });
+        }
 
         // First run ever (fresh install + auto-start): the token has just been
         // minted and the user has no other way to discover it — pop the portal

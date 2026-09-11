@@ -3,7 +3,8 @@
 //! Shows a tray icon while the daemon (`linkport.exe serve`) runs:
 //! - left click      → open the web portal
 //! - right click     → menu: Open portal / Start-at-login toggle /
-//!   Pause-routing toggle / Version / Portal URL / Quit
+//!   Pause-routing toggle / Check-for-updates / Version / Portal URL /
+//!   Quit
 //!
 //! Toggles mutate Windows/user state (Run registry key, pause flag file) and
 //! are performed on this thread (menu items are not `Send`), driven by
@@ -30,6 +31,13 @@ const ICON_SIZE: u32 = 32;
 const WM_TRAY_CMD: u32 = 0x8000 + 1;
 const CMD_TOGGLE_AUTOSTART: usize = 1;
 const CMD_TOGGLE_PAUSE: usize = 2;
+const CMD_UPDATE_CHECKED: usize = 3;
+
+/// Tell the tray thread an update check finished and the menu should
+/// re-read the shared result (no-op when no tray thread is running).
+pub fn notify_update_checked() {
+    post_cmd(CMD_UPDATE_CHECKED);
+}
 
 pub struct TrayHandle {
     thread: std::thread::JoinHandle<()>,
@@ -81,6 +89,21 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
         crate::paths::is_paused(),
         None,
     );
+    // Update items: an action plus a disabled status line, both re-texted
+    // on this thread whenever a check completes (WM_APP), and seeded from
+    // the shared state in case the startup check already finished.
+    let upd_action = MenuItem::with_id(
+        "upd_action",
+        crate::update::tray_action_text(state.update.lock().ok().and_then(|s| s.clone()).as_ref()),
+        true,
+        None,
+    );
+    let upd_status = MenuItem::with_id(
+        "upd_status",
+        crate::update::tray_status_text(state.update.lock().ok().and_then(|s| s.clone()).as_ref()),
+        false,
+        None,
+    );
     let version = MenuItem::with_id(
         "version",
         format!("Version {}", env!("CARGO_PKG_VERSION")),
@@ -104,6 +127,8 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
     menu.append(&sep1)?;
     menu.append(&autostart)?;
     menu.append(&pause)?;
+    menu.append(&upd_action)?;
+    menu.append(&upd_status)?;
     menu.append(&sep2)?;
     menu.append(&version)?;
     menu.append(&addr)?;
@@ -137,6 +162,11 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
                 }
                 "autostart" => post_cmd(CMD_TOGGLE_AUTOSTART),
                 "pause" => post_cmd(CMD_TOGGLE_PAUSE),
+                "upd_action" => {
+                    // Network-bound: keep the menu-event loop responsive.
+                    let st = menu_state.clone();
+                    std::thread::spawn(move || check_for_updates(st));
+                }
                 "quit" => {
                     let _ = menu_quit.send(true);
                     post_quit();
@@ -176,6 +206,7 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
             match msg.wParam {
                 CMD_TOGGLE_AUTOSTART => toggle_autostart(&autostart),
                 CMD_TOGGLE_PAUSE => toggle_pause(&pause, &tray),
+                CMD_UPDATE_CHECKED => refresh_update_items(&upd_action, &upd_status, &state),
                 _ => {}
             }
             continue;
@@ -187,6 +218,43 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Manual update action from the menu. When an update is already known,
+/// the click means "take me there" — the release page opens through the
+/// normal routing (rules apply, the open is logged like any link).
+/// Otherwise run a check now, publish it to the shared state and let the
+/// tray thread refresh the menu text.
+fn check_for_updates(state: AppState) {
+    let known_url = state
+        .update
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().filter(|c| c.available).map(|c| c.url.clone()));
+    if let Some(url) = known_url {
+        let _ = crate::open::open_url(&url);
+        return;
+    }
+    let result = crate::update::check();
+    if result.available {
+        println!(
+            "linkport: update available: v{} (running v{})",
+            result.latest.as_deref().unwrap_or("?"),
+            result.current
+        );
+    }
+    if let Ok(mut slot) = state.update.lock() {
+        *slot = Some(result);
+    }
+    notify_update_checked();
+}
+
+/// Re-read the shared update state and re-text the two menu items. Runs on
+/// the tray thread (items are not `Send`), triggered by `CMD_UPDATE_CHECKED`.
+fn refresh_update_items(action: &MenuItem, status: &MenuItem, state: &AppState) {
+    let checked = state.update.lock().ok().and_then(|s| s.clone());
+    let _ = action.set_text(crate::update::tray_action_text(checked.as_ref()));
+    let _ = status.set_text(crate::update::tray_status_text(checked.as_ref()));
 }
 
 fn toggle_autostart(item: &CheckMenuItem) {

@@ -114,6 +114,8 @@ exposes `handler_ok` so the portal can show the real state.
   (Start-menu `.lnk`).
 - `crates/linkport` — `lib.rs` (`open.rs` hot path + redirect-aware
   `decide()`, `redirect.rs` headers-only redirect resolution (ureq),
+  `update.rs` GitHub `releases/latest` update checks (startup, tray,
+  `POST /api/update/check`; semver compare + tray labels are unit-tested),
   `portal.rs` axum daemon + static SPA serving + auth, `api.rs` JSON API,
   `tray.rs`) and bins `linkport.rs` (the windowless GUI-subsystem main
   binary: URL handler + `serve`/no-args daemon) / `linkport_cli.rs`
@@ -134,6 +136,13 @@ exposes `handler_ok` so the portal can show the real state.
   `WM_APP` command constant (see below).
 - New config field → `linkport-core/src/config.rs` (serde defaults,
   roundtrip test) + portal UI.
+- Update checks: `crates/linkport/src/update.rs` owns the model, the
+  GitHub lookup and the tray label strings (keep them host-testable;
+  tray.rs only wires menu items). The result lives in
+  `AppState.update` (Arc<Mutex<Option<UpdateCheck>>>); every writer —
+  startup check, tray click, `/api/update/check` — stores it there and
+  calls `tray::notify_update_checked()` so the tray thread re-texts the
+  menu items (items are not `Send`; see the WM_APP gotcha).
 - New Windows registry integration → new module in `linkport-win` with
   imp/stub split.
 

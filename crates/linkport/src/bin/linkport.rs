@@ -37,7 +37,7 @@ fn start_daemon() {
     let port = linkport::paths::load_or_default().portal.port;
     if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
         if let Ok(token) = linkport::paths::ensure_token() {
-            linkport::portal::open_portal_url(&linkport::portal::AppState { token, port });
+            linkport::portal::open_portal_url(&linkport::portal::AppState::new(token, port));
         }
         return;
     }

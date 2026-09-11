@@ -4,6 +4,7 @@ import type {
   Decision,
   EventItem,
   Status,
+  UpdateInfo,
 } from "@/lib/types";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
@@ -55,4 +56,8 @@ export const api = {
     call<{ ok: boolean; detail: string }>("/api/register", { method: "POST" }),
   unregister: () =>
     call<{ ok: boolean; detail: string }>("/api/unregister", { method: "POST" }),
+  checkUpdate: () =>
+    call<{ ok: boolean; update: UpdateInfo }>("/api/update/check", {
+      method: "POST",
+    }),
 };

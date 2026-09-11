@@ -29,6 +29,11 @@ pub struct Config {
     /// these hosts are ever contacted.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub redirect_hosts: Vec<String>,
+    /// Check GitHub for a newer Linkport release when the daemon starts
+    /// and surface it in the portal/tray. The manual tray check always
+    /// works; this gates only the automatic lookup.
+    #[serde(default = "default_true")]
+    pub check_updates: bool,
 }
 
 impl Default for Config {
@@ -40,6 +45,7 @@ impl Default for Config {
             browsers: BTreeMap::new(),
             rules: Vec::new(),
             redirect_hosts: Vec::new(),
+            check_updates: true,
         }
     }
 }

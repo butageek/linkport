@@ -190,6 +190,7 @@ mod tests {
             browsers: BTreeMap::new(),
             rules,
             redirect_hosts: Vec::new(),
+            check_updates: true,
         };
         c.browsers.insert("ff".into(), browser("firefox"));
         c.browsers.insert("chrome".into(), browser("chrome"));

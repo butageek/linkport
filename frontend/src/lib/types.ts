@@ -31,6 +31,8 @@ export interface Config {
   rules: Rule[];
   /** Host patterns whose unmatched links are routed by redirect destination. */
   redirect_hosts: string[];
+  /** Check GitHub for a newer release when the daemon starts. */
+  check_updates: boolean;
 }
 
 export type Outcome =
@@ -65,6 +67,15 @@ export interface EventItem {
   error?: string | null;
 }
 
+/** Result of the latest update check (startup or tray). */
+export interface UpdateInfo {
+  current: string;
+  latest?: string | null;
+  available: boolean;
+  url: string;
+  error?: string | null;
+}
+
 export interface Status {
   version: string;
   registered: boolean;
@@ -78,6 +89,8 @@ export interface Status {
   default_browser?: string | null;
   rules_count: number;
   browsers_count: number;
+  /** Null until the first check (startup or tray) completes. */
+  update?: UpdateInfo | null;
 }
 
 export interface DiscoveredBrowser {

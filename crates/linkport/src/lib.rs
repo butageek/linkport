@@ -8,6 +8,7 @@ pub mod portal;
 pub mod redirect;
 #[cfg(windows)]
 pub mod tray;
+pub mod update;
 
 /// The windowless main binary (`linkport.exe`): this exe itself when we are
 /// it, else the sibling copy (the normal side-by-side deployment), else

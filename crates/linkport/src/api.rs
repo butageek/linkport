@@ -17,6 +17,7 @@ pub async fn ping() -> Json<Value> {
 
 pub async fn status(State(state): State<AppState>) -> Json<Value> {
     let cfg = paths::load_or_default();
+    let update = state.update.lock().ok().and_then(|s| s.clone());
     Json(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "registered": linkport_win::is_registered(),
@@ -28,6 +29,7 @@ pub async fn status(State(state): State<AppState>) -> Json<Value> {
         "default_browser": cfg.default_browser,
         "rules_count": cfg.rules.len(),
         "browsers_count": cfg.browsers.len(),
+        "update": update,
     }))
 }
 
@@ -146,6 +148,25 @@ pub async fn unregister() -> Json<Value> {
         Ok(()) => Json(json!({ "ok": true, "detail": "Unregistered." })),
         Err(e) => Json(json!({ "ok": false, "detail": e })),
     }
+}
+
+/// Run an update check on demand (Settings > "Check now"; mirrors the
+/// tray menu action). Blocking network I/O runs off the async runtime.
+pub async fn check_update(State(state): State<AppState>) -> Json<Value> {
+    let result = tokio::task::spawn_blocking(crate::update::check)
+        .await
+        .unwrap_or_else(|e| {
+            crate::update::UpdateCheck::failed(
+                env!("CARGO_PKG_VERSION"),
+                format!("check task failed: {e}"),
+            )
+        });
+    if let Ok(mut slot) = state.update.lock() {
+        *slot = Some(result.clone());
+    }
+    #[cfg(windows)]
+    crate::tray::notify_update_checked();
+    Json(json!({ "ok": true, "update": result }))
 }
 
 #[cfg(test)]

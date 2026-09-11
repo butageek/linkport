@@ -39,6 +39,11 @@ DAILY USE
 - Portal: left-click the tray icon (or Start menu > "Linkport").
 - Pause routing: right-click the tray icon > "Pause routing" - everything
   goes to your default browser until you unpause.
+- Updates: Linkport checks GitHub for a newer release when it starts
+  (disable in Settings > Updates). Right-click the tray icon >
+  "Check for updates" to check any time; when one is found the same item
+  becomes "Download Linkport v..." and opens the release page. Nothing is
+  ever downloaded or installed automatically.
 - If you quit from the tray, restart via the Start-menu "Linkport" entry
   or by double-clicking linkport.exe again.
 

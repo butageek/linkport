@@ -6,7 +6,7 @@ import { Copy } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Config, Status } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -17,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 export default function SettingsPage() {
@@ -25,6 +26,7 @@ export default function SettingsPage() {
   const [dirty, setDirty] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
 
   function load() {
     Promise.all([api.getConfig(), api.status()])
@@ -61,6 +63,25 @@ export default function SettingsPage() {
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function checkUpdate() {
+    setCheckingUpdate(true);
+    setError(null);
+    try {
+      const res = await api.checkUpdate();
+      setMessage(
+        res.update.available
+          ? `Linkport v${res.update.latest} is available — download it from the releases page.`
+          : (res.update.error ??
+            `You are up to date (v${res.update.current}).`),
+      );
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCheckingUpdate(false);
     }
   }
 
@@ -206,6 +227,65 @@ export default function SettingsPage() {
               After registering, open Windows Settings → Apps → Default apps → Linkport
               and set it as the default for HTTP/HTTPS. Windows does not allow apps to
               set this programmatically.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Updates</CardTitle>
+            <CardDescription>GitHub release checks</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4 text-sm">
+            <div className="flex items-center justify-between gap-4">
+              <Label htmlFor="check-updates">Check for updates on start</Label>
+              <Switch
+                id="check-updates"
+                checked={config?.check_updates ?? true}
+                disabled={!config}
+                onCheckedChange={(v) => {
+                  if (!config) return;
+                  setConfig({ ...config, check_updates: v });
+                  setDirty(true);
+                }}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Latest release</span>
+              <div className="flex items-center gap-2">
+                {!status?.update ? (
+                  <Badge variant="outline">not checked yet</Badge>
+                ) : status.update.available ? (
+                  <a
+                    href={status.update.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={buttonVariants({ variant: "outline", size: "sm" })}
+                  >
+                    v{status.update.latest} available
+                  </a>
+                ) : status.update.error ? (
+                  <Badge variant="outline" title={status.update.error}>
+                    check failed
+                  </Badge>
+                ) : (
+                  <Badge variant="outline">up to date (v{status.update.current})</Badge>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={checkUpdate}
+                  disabled={checkingUpdate}
+                >
+                  {checkingUpdate ? "…" : "Check now"}
+                </Button>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              The startup check and the tray menu’s “Check for updates” contact only
+              api.github.com to compare the newest published tag against the running
+              version — nothing is downloaded or installed automatically. Use the
+              tray menu’s download action or the button above to get the zip.
             </p>
           </CardContent>
         </Card>

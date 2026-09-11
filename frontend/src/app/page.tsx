@@ -103,6 +103,26 @@ function StatusCard({
                 <Badge>active</Badge>
               )}
             </Row>
+            <Row label="Update">
+              {!status.update ? (
+                <span className="text-muted-foreground">not checked yet</span>
+              ) : status.update.available ? (
+                <a
+                  href={status.update.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+                >
+                  v{status.update.latest} available
+                </a>
+              ) : status.update.error ? (
+                <Badge variant="outline" title={status.update.error}>
+                  check failed
+                </Badge>
+              ) : (
+                <Badge variant="outline">up to date</Badge>
+              )}
+            </Row>
             <Row label="Start at login">
               {status.autostart ? (
                 <Badge>enabled</Badge>
