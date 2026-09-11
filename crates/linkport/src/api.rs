@@ -17,7 +17,7 @@ pub async fn ping() -> Json<Value> {
 
 pub async fn status(State(state): State<AppState>) -> Json<Value> {
     let cfg = paths::load_or_default();
-    let update = state.update.lock().ok().and_then(|s| s.clone());
+    let update = state.snapshot_update();
     Json(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "registered": linkport_win::is_registered(),
@@ -161,9 +161,7 @@ pub async fn check_update(State(state): State<AppState>) -> Json<Value> {
                 format!("check task failed: {e}"),
             )
         });
-    if let Ok(mut slot) = state.update.lock() {
-        *slot = Some(result.clone());
-    }
+    state.store_update(result.clone());
     #[cfg(windows)]
     crate::tray::notify_update_checked();
     Json(json!({ "ok": true, "update": result }))

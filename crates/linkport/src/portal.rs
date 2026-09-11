@@ -36,6 +36,20 @@ impl AppState {
             update: Arc::new(Mutex::new(None)),
         }
     }
+
+    /// A copy of the latest update-check result, if any (the lock is held
+    /// only for the clone).
+    pub fn snapshot_update(&self) -> Option<crate::update::UpdateCheck> {
+        self.update.lock().ok().and_then(|s| s.clone())
+    }
+
+    /// Publish a check result to the shared state (best-effort: a poisoned
+    /// lock just drops the write).
+    pub fn store_update(&self, result: crate::update::UpdateCheck) {
+        if let Ok(mut slot) = self.update.lock() {
+            *slot = Some(result);
+        }
+    }
 }
 
 pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
@@ -115,9 +129,7 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
                         result.current
                     );
                 }
-                if let Ok(mut slot) = upd_state.update.lock() {
-                    *slot = Some(result);
-                }
+                upd_state.store_update(result);
                 // Refresh the tray menu text if a tray is up (no-op without one).
                 #[cfg(windows)]
                 crate::tray::notify_update_checked();

@@ -92,15 +92,16 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
     // Update items: an action plus a disabled status line, both re-texted
     // on this thread whenever a check completes (WM_APP), and seeded from
     // the shared state in case the startup check already finished.
+    let checked = state.snapshot_update();
     let upd_action = MenuItem::with_id(
         "upd_action",
-        crate::update::tray_action_text(state.update.lock().ok().and_then(|s| s.clone()).as_ref()),
+        crate::update::tray_action_text(checked.as_ref()),
         true,
         None,
     );
     let upd_status = MenuItem::with_id(
         "upd_status",
-        crate::update::tray_status_text(state.update.lock().ok().and_then(|s| s.clone()).as_ref()),
+        crate::update::tray_status_text(checked.as_ref()),
         false,
         None,
     );
@@ -243,16 +244,14 @@ fn check_for_updates(state: AppState) {
             result.current
         );
     }
-    if let Ok(mut slot) = state.update.lock() {
-        *slot = Some(result);
-    }
+    state.store_update(result);
     notify_update_checked();
 }
 
 /// Re-read the shared update state and re-text the two menu items. Runs on
 /// the tray thread (items are not `Send`), triggered by `CMD_UPDATE_CHECKED`.
 fn refresh_update_items(action: &MenuItem, status: &MenuItem, state: &AppState) {
-    let checked = state.update.lock().ok().and_then(|s| s.clone());
+    let checked = state.snapshot_update();
     let _ = action.set_text(crate::update::tray_action_text(checked.as_ref()));
     let _ = status.set_text(crate::update::tray_status_text(checked.as_ref()));
 }
