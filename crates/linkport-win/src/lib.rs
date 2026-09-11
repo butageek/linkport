@@ -10,4 +10,6 @@ mod registry;
 pub mod shortcut;
 
 pub use discover::{discover_browsers, system_default_exe, DiscoveredBrowser};
-pub use registry::{is_registered, register, unregister};
+pub use registry::{
+    handler_ok, is_registered, register, registered_handler, repair_handler, unregister,
+};

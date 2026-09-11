@@ -4,6 +4,6 @@ mod imp;
 mod stub;
 
 #[cfg(windows)]
-pub use imp::{disable, enable, is_enabled};
+pub use imp::{disable, enable, is_enabled, repair_stale};
 #[cfg(not(windows))]
-pub use stub::{disable, enable, is_enabled};
+pub use stub::{disable, enable, is_enabled, repair_stale};

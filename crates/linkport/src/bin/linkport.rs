@@ -28,6 +28,12 @@ fn main() {
 /// configured port — in that case surface the portal (the daemon may only
 /// be missing its tray icon, e.g. after an Explorer restart).
 fn start_daemon() {
+    // Repair a registration left pointing at a moved/deleted install
+    // before anything else — even when another daemon already owns the
+    // port and this process would only surface the portal.
+    #[cfg(windows)]
+    linkport::portal::heal_windows_registration();
+
     let port = linkport::paths::load_or_default().portal.port;
     if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
         if let Ok(token) = linkport::paths::ensure_token() {

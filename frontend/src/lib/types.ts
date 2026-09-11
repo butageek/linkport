@@ -68,6 +68,9 @@ export interface EventItem {
 export interface Status {
   version: string;
   registered: boolean;
+  /** False when the registered URL handler points at a missing exe —
+   *  clicked links then fail with "Application not found". */
+  handler_ok: boolean;
   paused: boolean;
   autostart: boolean;
   config_path: string;

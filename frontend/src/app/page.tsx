@@ -83,10 +83,14 @@ function StatusCard({
           <>
             <Row label="Version">{status.version}</Row>
             <Row label="Registered as browser">
-              {status.registered ? (
+              {!status.registered ? (
+                <Badge variant="outline">not registered</Badge>
+              ) : status.handler_ok ? (
                 <Badge>registered</Badge>
               ) : (
-                <Badge variant="outline">not registered</Badge>
+                <Badge variant="destructive" title="The registered handler points at a moved or deleted install. Run linkport.exe once (it self-repairs) or press Register in Settings.">
+                  handler broken
+                </Badge>
               )}
             </Row>
             <Row label="Browsers / rules">

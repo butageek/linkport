@@ -20,6 +20,7 @@ pub async fn status(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "registered": linkport_win::is_registered(),
+        "handler_ok": linkport_win::handler_ok(),
         "paused": paths::is_paused(),
         "autostart": linkport_win::autostart::is_enabled(),
         "config_path": paths::config_path().display().to_string(),

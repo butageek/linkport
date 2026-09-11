@@ -36,9 +36,10 @@ pub fn disable() -> Result<(), String> {
 /// and re-enabling overwrites it).
 pub fn is_enabled() -> bool {
     match run_value() {
-        Some(cmd) => exe_from_command(&cmd)
-            .map(|p| Path::new(&p).exists())
-            .unwrap_or(false),
+        Some(cmd) => {
+            let (exe, _) = linkport_core::launcher::parse_command_template(&cmd);
+            Path::new(&exe).exists()
+        }
         None => false,
     }
 }
@@ -50,12 +51,18 @@ fn run_value() -> Option<String> {
     key.get_value(VALUE_NAME).ok()
 }
 
-/// Extract the executable path from a Run-style command (quoted or bare).
-fn exe_from_command(command: &str) -> Option<String> {
-    let cmd = command.trim();
-    if let Some(stripped) = cmd.strip_prefix('"') {
-        stripped.split_once('"').map(|(exe, _)| exe.to_string())
-    } else {
-        cmd.split_once(' ').map(|(exe, _)| exe.to_string())
+/// Repair a stale auto-start entry after the install moved: when the Run
+/// value exists but points at an executable that is gone (old version
+/// folder), overwrite it with `current_command`. A deliberately disabled
+/// auto-start has no value at all and is left alone. Returns `true` when a
+/// repair happened.
+pub fn repair_stale(current_command: &str) -> Result<bool, String> {
+    let Some(existing) = run_value() else {
+        return Ok(false);
+    };
+    let (exe, _) = linkport_core::launcher::parse_command_template(&existing);
+    if Path::new(&exe).exists() {
+        return Ok(false);
     }
+    enable(current_command).map(|()| true)
 }

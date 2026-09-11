@@ -6,8 +6,9 @@ you define. Setup takes about 3 minutes. No admin rights needed.
 
 1. UNZIP TO A PERMANENT FOLDER
    Extract everything to a folder you will keep, e.g.  C:\Tools\Linkport
-   (Linkport registers its install path with Windows - if you move the
-   folder later, open the portal > Settings and press Register again).
+   (Linkport registers its install path with Windows. If you move the
+   folder later, just run linkport.exe from the new location once - it
+   updates the registration automatically.)
 
 2. START IT
    Double-click  linkport.exe .
@@ -44,6 +45,10 @@ DAILY USE
 TROUBLESHOOTING
 - A link opened in the wrong browser? Portal > Dashboard > "Try a URL"
   shows which rule matched and why.
+- "Application not found" when clicking links? Windows' registered handler
+  points at an old/deleted install folder. Run linkport.exe from its
+  current folder once (the daemon repairs the registration at startup) or
+  use Settings > Register.
 - Every routing decision is logged to  %APPDATA%\linkport\events.jsonl
 - The portal listens on 127.0.0.1 only, port 14200 by default (port is in
   %APPDATA%\linkport\config.toml).

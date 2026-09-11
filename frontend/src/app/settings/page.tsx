@@ -179,12 +179,21 @@ export default function SettingsPage() {
           <CardContent className="flex flex-col gap-4 text-sm">
             <div className="flex items-center justify-between">
               <span>Registered as browser candidate</span>
-              {status?.registered ? (
+              {!status?.registered ? (
+                <Badge variant="outline">not registered</Badge>
+              ) : status.handler_ok ? (
                 <Badge>registered</Badge>
               ) : (
-                <Badge variant="outline">not registered</Badge>
+                <Badge variant="destructive">handler broken</Badge>
               )}
             </div>
+            {status?.registered && !status.handler_ok && (
+              <p className="text-xs text-destructive">
+                The registered link handler points at a moved or deleted folder —
+                clicked links fail with “Application not found”. Run linkport.exe
+                from its new folder once (it self-repairs), or press Register.
+              </p>
+            )}
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => doRegister("register")}>
                 Register

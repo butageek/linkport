@@ -11,3 +11,7 @@ pub fn disable() -> Result<(), String> {
 pub fn is_enabled() -> bool {
     false
 }
+
+pub fn repair_stale(_current_command: &str) -> Result<bool, String> {
+    Ok(false)
+}

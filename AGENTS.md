@@ -60,7 +60,6 @@ Maintainers keep machine-specific notes (WSL paths, deploy routine) in a
 gitignored `AGENTS.local.md` next to this file.
 
 ## Windows integration state (all HKCU, no admin)
-
 `<install>` below means the directory holding the two exes (the install
 path is registered with Windows — moving it requires re-registering).
 
@@ -76,6 +75,17 @@ path is registered with Windows — moving it requires re-registering).
 After re-registering, verify `UserChoice` didn't get reset by Windows
 (re-registering can invalidate its hash — if `http\UserChoice` is gone,
 the user must re-set the default browser by hand in Settings).
+
+**Moved/updated install self-heal**: the release zip extracts to a
+version-named folder, so an upgrade-by-extract leaves the registered
+handler (and the Run key) pointing at the deleted old copy — links then
+fail with "Application not found" and NO events are logged (the handler
+exe never runs; both symptoms share this one cause). Every daemon start
+(`start_daemon`, before the port probe) calls
+`portal::heal_windows_registration()`: it rewrites the handler command
+values in place (no key create/delete, so `UserChoice` survives — the
+Chrome-update model) and repairs a stale Run value. `api::status`
+exposes `handler_ok` so the portal can show the real state.
 
 ## Runtime state
 

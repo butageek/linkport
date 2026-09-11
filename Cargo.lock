@@ -1210,6 +1210,7 @@ dependencies = [
 name = "linkport-win"
 version = "0.2.0"
 dependencies = [
+ "linkport-core",
  "serde",
  "winreg",
 ]

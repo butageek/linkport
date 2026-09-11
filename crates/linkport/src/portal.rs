@@ -97,6 +97,7 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
         // after a tray Quit (created once; cheap existence check otherwise).
         #[cfg(windows)]
         if let Some(main_exe) = crate::main_binary_path() {
+            heal_windows_registration();
             if let Err(e) = linkport_win::shortcut::ensure_start_menu_shortcut(&main_exe) {
                 eprintln!("linkport: start menu shortcut: {e}");
             }
@@ -119,6 +120,54 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
 /// The tokenized portal URL (opens straight into the dashboard, no gate).
 pub fn portal_url_string(state: &AppState) -> String {
     format!("http://127.0.0.1:{}/?token={}", state.port, state.token)
+}
+
+/// Self-heal the Windows integration after the install moved (the release
+/// zip extracts to a version-named folder, so an upgrade-by-extract leaves
+/// the registered handler pointing at the deleted old copy — links then
+/// fail with "Application not found" and nothing reaches the event log).
+///
+/// - URL handler: when the registered command's exe is missing *or* is a
+///   different copy of Linkport than the one running, rewrite the command
+///   values in place. No key is created or deleted, so the user's
+///   default-browser `UserChoice` (hashed over the ProgId name, not its
+///   contents) survives — the same in-place update browsers ship on every
+///   release. A deliberately unregistered install is left alone.
+/// - Login auto-start: repair only a stale Run value (one whose exe is
+///   gone); "disabled" has no value and stays off.
+#[cfg(windows)]
+pub fn heal_windows_registration() {
+    let handler = crate::default_handler_command();
+    if linkport_win::is_registered() {
+        let current_exe = linkport_core::launcher::parse_command_template(&handler).0;
+        let stale = linkport_win::registered_handler()
+            .map(|cmd| {
+                let (exe, _) = linkport_core::launcher::parse_command_template(&cmd);
+                !same_windows_path(&exe, &current_exe)
+            })
+            .unwrap_or(true);
+        if stale {
+            match linkport_win::repair_handler(&handler) {
+                Ok(()) => println!(
+                    "linkport: registered handler pointed at a different install — \
+                     updated to {handler}"
+                ),
+                Err(e) => eprintln!("linkport: {e} — re-register via the portal's Settings"),
+            }
+        }
+    }
+    match linkport_win::autostart::repair_stale(&crate::autostart_command()) {
+        Ok(true) => println!("linkport: repaired stale login auto-start entry"),
+        Ok(false) => {}
+        Err(e) => eprintln!("linkport: auto-start repair: {e}"),
+    }
+}
+
+/// Case-insensitive Windows path comparison, slash-style agnostic.
+#[cfg(windows)]
+fn same_windows_path(a: &str, b: &str) -> bool {
+    let norm = |s: &str| s.trim().replace('/', "\\").to_lowercase();
+    norm(a) == norm(b)
 }
 
 /// Open the portal in a real browser.

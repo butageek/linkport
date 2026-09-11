@@ -17,6 +17,7 @@ use winreg::RegKey;
 
 const APP_REG_PATH: &str = r"Software\Clients\StartMenuInternet\Linkport";
 const PROG_ID: &str = "Linkport.URL";
+const OPEN_COMMAND_PATH: &str = r"Software\Classes\Linkport.URL\shell\open\command";
 
 pub fn register(_exe: &Path, open_command: &str) -> Result<(), String> {
     let icon = icon_source(open_command);
@@ -82,15 +83,62 @@ pub fn is_registered() -> bool {
         .is_ok()
 }
 
+/// The registered URL-handler command (`Linkport.URL\shell\open\command`),
+/// i.e. what Windows actually runs when a link is clicked. `None` when no
+/// command is registered.
+pub fn registered_handler() -> Option<String> {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    hkcu.open_subkey(OPEN_COMMAND_PATH).ok()?.get_value("").ok()
+}
+
+/// Whether the registered handler can still work: not registered, or
+/// registered with a command whose executable exists on disk. A `false`
+/// after moving/upgrading the install is exactly the state where Windows
+/// shows "Application not found" on every clicked link.
+pub fn handler_ok() -> bool {
+    if !is_registered() {
+        return true;
+    }
+    registered_handler()
+        .and_then(|cmd| {
+            let (exe, _) = linkport_core::launcher::parse_command_template(&cmd);
+            Path::new(&exe).exists().then_some(exe)
+        })
+        .is_some()
+}
+
+/// Update the registered handler paths in place after the install moved
+/// (e.g. upgraded to a new version folder). Only existing values are
+/// overwritten — no key is created or deleted — so the `UserChoice` hash
+/// (which covers the ProgId name, not its command) stays valid. This is
+/// the same in-place update browsers do on every release.
+pub fn repair_handler(open_command: &str) -> Result<(), String> {
+    let icon = icon_source(open_command);
+    let updates = [
+        (OPEN_COMMAND_PATH.to_string(), open_command.to_string()),
+        (
+            format!(r"Software\Classes\{PROG_ID}\DefaultIcon"),
+            icon.clone(),
+        ),
+        (
+            format!(r"{APP_REG_PATH}\shell\open\command"),
+            open_command.to_string(),
+        ),
+        (format!(r"{APP_REG_PATH}\DefaultIcon"), icon),
+    ];
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    for (key_path, value) in &updates {
+        hkcu.open_subkey_with_flags(key_path, KEY_SET_VALUE)
+            .and_then(|k| k.set_value("", value))
+            .map_err(|e| format!("handler repair failed for {key_path}: {e}"))?;
+    }
+    Ok(())
+}
+
 /// `<handler exe>,0` icon reference (Chrome-style) derived from the shell
 /// open command, e.g. `"C:\...\linkport.exe" "%1"` →
 /// `C:\...\linkport.exe,0`.
 fn icon_source(open_command: &str) -> String {
-    let cmd = open_command.trim();
-    let exe = cmd
-        .strip_prefix('"')
-        .and_then(|s| s.split_once('"').map(|(e, _)| e))
-        .or_else(|| cmd.split_once(' ').map(|(e, _)| e))
-        .unwrap_or(cmd);
+    let (exe, _) = linkport_core::launcher::parse_command_template(open_command);
     format!("{exe},0")
 }
