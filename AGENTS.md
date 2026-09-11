@@ -47,14 +47,15 @@ cargo fmt --all                             # repo is kept fmt-clean; run before
   on the web), tag `vX.Y.Z`, push branch + tag, then watch release.yml
   and verify the published release + zip; polish notes with
   `gh release edit vX.Y.Z --notes-file …`.
-- "Run CI" means: `gh workflow run CI.yml` (no release).
+- "Run CI" means: `gh workflow run CI` (no release).
 
 CI (`.github/workflows/ci.yml`) runs the format check, tests, the Windows
-cross-check and the portal build **on demand** (`gh workflow run CI.yml`)
-and on every PR — everyday pushes deliberately trigger nothing (they are
-for preservation). Pushing a version tag (`v*`) triggers
-`.github/workflows/release.yml`: tests + `package.sh` + a published
-GitHub Release.
+cross-check and the portal build **on demand** (`gh workflow run CI` —
+address it by workflow name or ID; the `CI.yml` filename form 404s on
+GitHub's dispatch API) and on every PR — everyday pushes deliberately
+trigger nothing (they are for preservation). Pushing a version tag
+(`v*`) triggers `.github/workflows/release.yml`: tests + `package.sh` +
+a published GitHub Release.
 
 Maintainers keep machine-specific notes (WSL paths, deploy routine) in a
 gitignored `AGENTS.local.md` next to this file.
