@@ -4,8 +4,11 @@ import { useEffect, useState } from "react";
 import { Copy } from "lucide-react";
 
 import { api } from "@/lib/api";
-import type { Config, Status, UpdateInfo } from "@/lib/types";
+import type { Status, UpdateInfo } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { SavedIndicator } from "@/components/saved-indicator";
+import { WarningsBanner } from "@/components/warnings-banner";
+import { useConfigEditor } from "@/lib/use-config-editor";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -37,12 +40,14 @@ function describeUpdate(u: UpdateInfo): UpdateResult {
 }
 
 export default function SettingsPage() {
-  const [config, setConfig] = useState<Config | null>(null);
+  const { config, setConfig, error, setError, warnings, mutate, justSaved } =
+    useConfigEditor();
   const [status, setStatus] = useState<Status | null>(null);
-  const [dirty, setDirty] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [regDetail, setRegDetail] = useState<string | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  // Port edits stay local until blur: saving per keystroke would persist
+  // half-typed values. Committed when valid, reverted when not.
+  const [portDraft, setPortDraft] = useState<string | null>(null);
 
   function load() {
     Promise.all([api.getConfig(), api.status()])
@@ -55,19 +60,15 @@ export default function SettingsPage() {
 
   useEffect(load, []);
 
-  async function save() {
-    if (!config) return;
-    try {
-      const res = await api.saveConfig(config);
-      setDirty(false);
-      setMessage(
-        res.warnings.length > 0
-          ? `Saved with warnings: ${res.warnings.join("; ")}`
-          : "Saved. Restart `linkport-cli serve` for a port change to take effect.",
-      );
-      load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+  function commitPort() {
+    if (!config || portDraft === null) return;
+    const port = Number(portDraft);
+    setPortDraft(null); // back to showing config.portal.port
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) return;
+    if (port !== config.portal.port) {
+      mutate((c) => {
+        c.portal.port = port;
+      });
     }
   }
 
@@ -75,7 +76,7 @@ export default function SettingsPage() {
     try {
       const res =
         action === "register" ? await api.register() : await api.unregister();
-      setMessage(res.detail);
+      setRegDetail(res.detail);
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -111,15 +112,13 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3">
         <h1 className="text-2xl font-semibold">Settings</h1>
-        <Button onClick={save} disabled={!config || !dirty}>
-          Save
-        </Button>
+        <SavedIndicator show={justSaved} />
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
-      {message && <p className="text-sm text-muted-foreground">{message}</p>}
+      <WarningsBanner warnings={warnings} />
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
@@ -136,11 +135,10 @@ export default function SettingsPage() {
                     id="default-browser"
                     value={currentDefault}
                     onChange={(e) => {
-                      setConfig({
-                        ...config,
-                        default_browser: e.target.value || null,
+                      const v = e.target.value || null;
+                      mutate((c) => {
+                        c.default_browser = v;
                       });
-                      setDirty(true);
                     }}
                   >
                     {browserEntries.length === 0 ? (
@@ -166,17 +164,15 @@ export default function SettingsPage() {
                     type="number"
                     min={1024}
                     max={65535}
-                    value={config.portal.port}
-                    onChange={(e) => {
-                      setConfig({
-                        ...config,
-                        portal: { ...config.portal, port: Number(e.target.value) },
-                      });
-                      setDirty(true);
-                    }}
+                    value={portDraft ?? String(config.portal.port)}
+                    onChange={(e) => setPortDraft(e.target.value)}
+                    onBlur={commitPort}
+                    onKeyDown={(e) => e.key === "Enter" && commitPort()}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Takes effect after restarting <code>linkport-cli serve</code>.
+                    Saved when you leave the field; takes effect after restarting
+                    Linkport — right-click the tray icon and pick{" "}
+                    <strong>Restart</strong>.
                   </p>
                 </div>
               </>
@@ -208,13 +204,24 @@ export default function SettingsPage() {
               </p>
             )}
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => doRegister("register")}>
+              {/* Register doubles as the repair for a broken handler, so it
+                  only greys out when registration is fully healthy. */}
+              <Button
+                variant="outline"
+                onClick={() => doRegister("register")}
+                disabled={!!status?.registered && !!status.handler_ok}
+              >
                 Register
               </Button>
-              <Button variant="outline" onClick={() => doRegister("unregister")}>
+              <Button
+                variant="outline"
+                onClick={() => doRegister("unregister")}
+                disabled={!status?.registered}
+              >
                 Unregister
               </Button>
             </div>
+            {regDetail && <p className="text-xs text-muted-foreground">{regDetail}</p>}
             <p className="text-xs text-muted-foreground">
               After registering, open Windows Settings → Apps → Default apps → Linkport
               and set it as the default for HTTP/HTTPS. Windows does not allow apps to
@@ -236,9 +243,9 @@ export default function SettingsPage() {
                 checked={config?.check_updates ?? true}
                 disabled={!config}
                 onCheckedChange={(v) => {
-                  if (!config) return;
-                  setConfig({ ...config, check_updates: v });
-                  setDirty(true);
+                  mutate((c) => {
+                    c.check_updates = v;
+                  });
                 }}
               />
             </div>

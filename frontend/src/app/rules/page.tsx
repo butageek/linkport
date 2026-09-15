@@ -6,6 +6,7 @@ import { ArrowDown, ArrowUp, Pencil, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Browser, Rule } from "@/lib/types";
 import { useConfigEditor } from "@/lib/use-config-editor";
+import { SavedIndicator } from "@/components/saved-indicator";
 import { WarningsBanner } from "@/components/warnings-banner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -99,7 +100,7 @@ function destinationParam(url: string): string {
 }
 
 export default function RulesPage() {
-  const { config, setConfig, dirty, saving, error, setError, warnings, mutate, save } =
+  const { config, setConfig, error, setError, warnings, mutate, justSaved } =
     useConfigEditor();
   // null = form closed; -1 = creating new; >= 0 = editing rules[index]
   const [editing, setEditing] = useState<{ index: number; draft: Rule } | null>(null);
@@ -164,19 +165,16 @@ export default function RulesPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3">
         <h1 className="text-2xl font-semibold">Rules</h1>
-        <div className="flex items-center gap-3">
-          {dirty && <Badge variant="outline">unsaved changes</Badge>}
-          <Button
-            variant="outline"
-            onClick={() => setEditing({ index: -1, draft: emptyRule() })}
-          >
-            <Plus /> Add rule
-          </Button>
-          <Button onClick={save} disabled={!config || saving || !dirty}>
-            {saving ? "Saving…" : "Save"}
-          </Button>
-        </div>
+        <SavedIndicator show={justSaved} />
+      </div>
+      <Button
+        variant="outline"
+        onClick={() => setEditing({ index: -1, draft: emptyRule() })}
+      >
+        <Plus /> Add rule
+      </Button>
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}

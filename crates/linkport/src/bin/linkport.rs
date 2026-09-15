@@ -1,6 +1,6 @@
 //! The app itself: GUI-subsystem (windowless) entry point.
 //!
-//! Three invocations:
+//! Invocations:
 //! - `linkport.exe "<url>"` — the OS-facing URL handler registered in the
 //!   registry's shell open command. No console window ever flashes;
 //!   failures are recorded in the event log and shown in the portal.
@@ -9,6 +9,8 @@
 //! - `linkport.exe` (no arguments) — double-click / Start Menu launch:
 //!   start the daemon, or open the portal if one is already running. This
 //!   is how the daemon comes back after a tray Quit.
+//! - `linkport.exe restart` — internal: spawned by the exiting daemon on a
+//!   tray Restart. Waits out the port release, then becomes the daemon.
 //!
 //! Terminal/debug workflows live in the sibling `linkport-cli.exe`.
 
@@ -18,6 +20,13 @@ fn main() {
     let arg = std::env::args().nth(1).unwrap_or_default();
     let arg = arg.trim();
     if arg.is_empty() || arg == "serve" {
+        start_daemon();
+        return;
+    }
+    if arg == "restart" {
+        // The previous daemon is still tearing down its listener; give it a
+        // moment so the port is free when this instance checks.
+        std::thread::sleep(std::time::Duration::from_millis(750));
         start_daemon();
         return;
     }
@@ -42,4 +51,17 @@ fn start_daemon() {
         return;
     }
     let _ = linkport::portal::serve(None, false);
+
+    // A tray Restart shut this daemon down: hand off to a fresh copy.
+    #[cfg(windows)]
+    if linkport::tray::restart_requested() {
+        if let Ok(exe) = std::env::current_exe() {
+            use std::os::windows::process::CommandExt;
+            const DETACHED_PROCESS: u32 = 0x0000_0008;
+            let _ = std::process::Command::new(exe)
+                .arg("restart")
+                .creation_flags(DETACHED_PROCESS)
+                .spawn();
+        }
+    }
 }

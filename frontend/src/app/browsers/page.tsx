@@ -6,6 +6,7 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import type { BrowsersResponse, Browser } from "@/lib/types";
 import { useConfigEditor } from "@/lib/use-config-editor";
+import { SavedIndicator } from "@/components/saved-indicator";
 import { WarningsBanner } from "@/components/warnings-banner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,7 +50,7 @@ function slug(name: string): string {
 }
 
 export default function BrowsersPage() {
-  const { config, setConfig, dirty, saving, error, setError, warnings, mutate, save } =
+  const { config, setConfig, error, setError, warnings, mutate, justSaved } =
     useConfigEditor();
   const [discovered, setDiscovered] = useState<BrowsersResponse["discovered"]>([]);
   const [draft, setDraft] = useState<BrowserDraft | null>(null);
@@ -98,16 +99,13 @@ export default function BrowsersPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Browsers</h1>
         <div className="flex items-center gap-3">
-          {dirty && <Badge variant="outline">unsaved changes</Badge>}
-          <Button variant="outline" onClick={() => setDraft(emptyDraft())}>
-            <Plus /> Add browser
-          </Button>
-          <Button onClick={save} disabled={!config || saving || !dirty}>
-            {saving ? "Saving…" : "Save"}
-          </Button>
+          <h1 className="text-2xl font-semibold">Browsers</h1>
+          <SavedIndicator show={justSaved} />
         </div>
+        <Button variant="outline" onClick={() => setDraft(emptyDraft())}>
+          <Plus /> Add browser
+        </Button>
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}

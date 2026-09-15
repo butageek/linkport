@@ -59,7 +59,8 @@ Two binaries ship from one crate and must sit side by side:
   one-click registration.
 - **System tray** — version, portal URL, **Start Linkport when I sign in**
   (native `HKCU\…\Run` key, no Task Scheduler), **Pause routing** (all links
-  → default browser until unpaused), Quit (graceful shutdown; link routing
+  → default browser until unpaused), Restart (quit + relaunch in one click —
+  applies a changed portal port), Quit (graceful shutdown; link routing
   keeps working — restart via the Start-menu "Linkport" entry, by
   double-clicking `linkport.exe`, or by signing in again).
 - **First-run friendly** — on the very first daemon start ever, the portal

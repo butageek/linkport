@@ -4,16 +4,18 @@
 //! - left click      → open the web portal
 //! - right click     → menu: Open portal / Start-at-login toggle /
 //!   Pause-routing toggle / Check-for-updates / Version / Portal URL /
-//!   Quit
+//!   Restart / Quit
 //!
 //! Toggles mutate Windows/user state (Run registry key, pause flag file) and
 //! are performed on this thread (menu items are not `Send`), driven by
 //! `WM_APP` messages posted from the menu-event thread. Quit performs a
-//! graceful axum shutdown via the watch channel, then posts WM_QUIT.
+//! graceful axum shutdown via the watch channel, then posts WM_QUIT;
+//! Restart does the same and additionally asks the exiting process to
+//! respawn a fresh daemon (see `restart_requested`).
 
 #![cfg(windows)]
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use tokio::sync::watch::Sender as WatchSender;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
@@ -22,6 +24,13 @@ use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEv
 use crate::portal::AppState;
 
 static TRAY_THREAD_ID: AtomicU32 = AtomicU32::new(0);
+static RESTART_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// Whether the last shutdown was asked for by the tray's Restart item —
+/// the exiting main should respawn a fresh daemon when true.
+pub fn restart_requested() -> bool {
+    RESTART_REQUESTED.load(Ordering::SeqCst)
+}
 
 const ICON_RGBA: &[u8] = include_bytes!("../../../resources/icon32.rgba");
 const ICON_GREY_RGBA: &[u8] = include_bytes!("../../../resources/icon32-grey.rgba");
@@ -120,6 +129,7 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
     let sep1 = PredefinedMenuItem::separator();
     let sep2 = PredefinedMenuItem::separator();
     let sep3 = PredefinedMenuItem::separator();
+    let restart_item = MenuItem::with_id("restart", "Restart Linkport", true, None);
     let quit_item = MenuItem::with_id("quit", "Quit Linkport", true, None);
 
     let menu = Menu::new();
@@ -134,6 +144,7 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
     menu.append(&version)?;
     menu.append(&addr)?;
     menu.append(&sep3)?;
+    menu.append(&restart_item)?;
     menu.append(&quit_item)?;
 
     let paused = crate::paths::is_paused();
@@ -167,6 +178,11 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
                     // Network-bound: keep the menu-event loop responsive.
                     let st = menu_state.clone();
                     std::thread::spawn(move || check_for_updates(st));
+                }
+                "restart" => {
+                    RESTART_REQUESTED.store(true, Ordering::SeqCst);
+                    let _ = menu_quit.send(true);
+                    post_quit();
                 }
                 "quit" => {
                     let _ = menu_quit.send(true);
