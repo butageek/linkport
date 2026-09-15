@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Plus, RefreshCw, Trash2 } from "lucide-react";
 
 import { api } from "@/lib/api";
-import type { Decision, EventItem, Status } from "@/lib/types";
+import type { Decision, EventItem, RuleTrace, Status } from "@/lib/types";
 import { OutcomeBadge } from "@/components/outcome-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -103,10 +103,10 @@ function StatusCard({
                 <Badge>active</Badge>
               )}
             </Row>
-            <Row label="Update">
-              {!status.update ? (
-                <span className="text-muted-foreground">not checked yet</span>
-              ) : status.update.available ? (
+            {/* Update state lives in Settings; surface it here only when
+                actionable — silence means up to date / not checked yet. */}
+            {status.update?.available && (
+              <Row label="Update">
                 <a
                   href={status.update.url}
                   target="_blank"
@@ -115,14 +115,15 @@ function StatusCard({
                 >
                   v{status.update.latest} available
                 </a>
-              ) : status.update.error ? (
+              </Row>
+            )}
+            {status.update?.error && (
+              <Row label="Update">
                 <Badge variant="outline" title={status.update.error}>
                   check failed
                 </Badge>
-              ) : (
-                <Badge variant="outline">up to date</Badge>
-              )}
-            </Row>
+              </Row>
+            )}
             <Row label="Start at login">
               {status.autostart ? (
                 <Badge>enabled</Badge>
@@ -209,23 +210,52 @@ function TestCard({ browserNames }: { browserNames: Record<string, string> }) {
                 by that destination.
               </p>
             )}
-            <div className="rounded-md border">
-              {decision.trace.map((t, i) => (
-                <div
-                  key={i}
-                  className="flex items-center justify-between gap-2 border-b px-3 py-1.5 text-xs last:border-b-0"
-                >
-                  <span>{t.name}</span>
-                  <span className={t.matched ? "font-medium" : "text-muted-foreground"}>
-                    {t.reason}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <TraceList trace={decision.trace} />
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** Dry-run trace: matched rules first, the mismatch trail collapsed. */
+function TraceList({ trace }: { trace: RuleTrace[] }) {
+  const matched = trace.filter((t) => t.matched);
+  const unmatched = trace.filter((t) => !t.matched);
+  return (
+    <div className="rounded-md border">
+      {matched.map((t, i) => (
+        <div
+          key={i}
+          className="flex items-center justify-between gap-2 border-b px-3 py-1.5 text-xs last:border-b-0"
+        >
+          <span className="font-medium">{t.name}</span>
+          <span className="text-emerald-600 dark:text-emerald-400">matched</span>
+        </div>
+      ))}
+      {matched.length === 0 && (
+        <div className="px-3 py-1.5 text-xs text-muted-foreground">
+          No rule matched — routed by the default browser.
+        </div>
+      )}
+      {unmatched.length > 0 && (
+        <details className="group">
+          <summary className="cursor-pointer select-none border-t px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground">
+            {unmatched.length} other rule{unmatched.length === 1 ? "" : "s"} checked —
+            show
+          </summary>
+          {unmatched.map((t, i) => (
+            <div
+              key={i}
+              className="flex items-center justify-between gap-2 border-t px-3 py-1.5 text-xs"
+            >
+              <span className="text-muted-foreground">{t.name}</span>
+              <span className="text-muted-foreground">{t.reason}</span>
+            </div>
+          ))}
+        </details>
+      )}
+    </div>
   );
 }
 

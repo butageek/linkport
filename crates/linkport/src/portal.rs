@@ -241,7 +241,9 @@ pub fn open_portal_url(state: &AppState) {
                 target, incognito, ..
             } => open::launch_browser(&cfg, target, &url, *incognito).is_ok(),
             Outcome::Default { target } => open::launch_browser(&cfg, target, &url, false).is_ok(),
-            Outcome::Blocked { .. } | Outcome::NoMatch => false,
+            // The portal URL is not a wrapper; resolve/block/no-match all
+            // fall through to the direct-launch chain below.
+            Outcome::Blocked { .. } | Outcome::NoMatch | Outcome::Resolve { .. } => false,
         };
         if launched {
             return;

@@ -1169,7 +1169,7 @@ dependencies = [
 
 [[package]]
 name = "linkport"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1194,7 +1194,7 @@ dependencies = [
 
 [[package]]
 name = "linkport-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "globset",
@@ -1208,7 +1208,7 @@ dependencies = [
 
 [[package]]
 name = "linkport-win"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "linkport-core",
  "serde",

@@ -11,6 +11,10 @@ pub const CONFIG_VERSION: u32 = 1;
 /// Special rule target that swallows the URL without opening anything.
 pub const TARGET_BLOCK: &str = "block";
 
+/// Special rule target that follows the link's redirects and re-runs the
+/// rules against the final destination (trackers, shorteners).
+pub const TARGET_RESOLVE: &str = "resolve";
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -161,7 +165,10 @@ pub fn validate(cfg: &Config) -> Vec<String> {
         ));
     }
     for (i, rule) in cfg.rules.iter().enumerate() {
-        if rule.target != TARGET_BLOCK && !cfg.browsers.contains_key(&rule.target) {
+        if rule.target != TARGET_BLOCK
+            && rule.target != TARGET_RESOLVE
+            && !cfg.browsers.contains_key(&rule.target)
+        {
             warnings.push(format!(
                 "rule[{}] {:?} targets unknown browser {:?}",
                 i, rule.name, rule.target

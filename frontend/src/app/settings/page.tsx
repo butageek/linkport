@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { Copy } from "lucide-react";
 
 import { api } from "@/lib/api";
-import type { Config, Status } from "@/lib/types";
+import type { Config, Status, UpdateInfo } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -18,7 +19,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
+
+/** Inline feedback for a manual update check, rendered next to the button. */
+type UpdateResult = { text: string; tone: "ok" | "error" | "info" };
+
+function describeUpdate(u: UpdateInfo): UpdateResult {
+  if (u.available) {
+    return {
+      text: `Linkport v${u.latest} is available — download it from the releases page.`,
+      tone: "info",
+    };
+  }
+  if (u.error) {
+    return { text: u.error, tone: "error" };
+  }
+  return { text: `You are up to date (v${u.current}).`, tone: "ok" };
+}
 
 export default function SettingsPage() {
   const [config, setConfig] = useState<Config | null>(null);
@@ -66,17 +82,17 @@ export default function SettingsPage() {
     }
   }
 
+  // Update-check feedback renders inline in the Updates card next to the
+  // button that triggered it — a page-top message is too easy to miss.
+  const [updateResult, setUpdateResult] = useState<UpdateResult | null>(null);
+
   async function checkUpdate() {
     setCheckingUpdate(true);
     setError(null);
+    setUpdateResult(null);
     try {
       const res = await api.checkUpdate();
-      setMessage(
-        res.update.available
-          ? `Linkport v${res.update.latest} is available — download it from the releases page.`
-          : (res.update.error ??
-            `You are up to date (v${res.update.current}).`),
-      );
+      setUpdateResult(describeUpdate(res.update));
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -163,30 +179,6 @@ export default function SettingsPage() {
                     Takes effect after restarting <code>linkport-cli serve</code>.
                   </p>
                 </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="redirect-hosts">Redirecting hosts (one per line)</Label>
-                  <Textarea
-                    id="redirect-hosts"
-                    value={config.redirect_hosts.join("\n")}
-                    onChange={(e) => {
-                      setConfig({
-                        ...config,
-                        redirect_hosts: e.target.value
-                          .split("\n")
-                          .map((h) => h.trim())
-                          .filter((h) => h.length > 0),
-                      });
-                      setDirty(true);
-                    }}
-                    placeholder={"track.smtpsendemail.com\nbit.ly"}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Links from these hosts that match no rule are followed to their
-                    final destination (headers only), and your rules are evaluated
-                    against that — so email trackers can route per real target.
-                    Only these hosts are ever contacted.
-                  </p>
-                </div>
               </>
             )}
           </CardContent>
@@ -253,8 +245,11 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between">
               <span>Latest release</span>
               <div className="flex items-center gap-2">
+                {/* h-8 matches the Check-now button height so the pair reads as one control row */}
                 {!status?.update ? (
-                  <Badge variant="outline">not checked yet</Badge>
+                  <Badge variant="outline" className="h-8">
+                    not checked yet
+                  </Badge>
                 ) : status.update.available ? (
                   <a
                     href={status.update.url}
@@ -265,11 +260,13 @@ export default function SettingsPage() {
                     v{status.update.latest} available
                   </a>
                 ) : status.update.error ? (
-                  <Badge variant="outline" title={status.update.error}>
+                  <Badge variant="outline" className="h-8" title={status.update.error}>
                     check failed
                   </Badge>
                 ) : (
-                  <Badge variant="outline">up to date (v{status.update.current})</Badge>
+                  <Badge variant="outline" className="h-8">
+                    up to date (v{status.update.current})
+                  </Badge>
                 )}
                 <Button
                   variant="outline"
@@ -277,10 +274,23 @@ export default function SettingsPage() {
                   onClick={checkUpdate}
                   disabled={checkingUpdate}
                 >
-                  {checkingUpdate ? "…" : "Check now"}
+                  {checkingUpdate ? "Checking…" : "Check now"}
                 </Button>
               </div>
             </div>
+            {updateResult && (
+              <p
+                className={cn(
+                  "text-sm font-medium",
+                  updateResult.tone === "ok" && "text-emerald-600 dark:text-emerald-400",
+                  updateResult.tone === "error" && "text-destructive",
+                  updateResult.tone === "info" && "text-foreground",
+                )}
+                role="status"
+              >
+                {updateResult.text}
+              </p>
+            )}
             <p className="text-xs text-muted-foreground">
               The startup check and the tray menu’s “Check for updates” contact only
               api.github.com to compare the newest published tag against the running

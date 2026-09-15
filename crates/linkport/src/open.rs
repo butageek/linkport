@@ -34,7 +34,9 @@ pub fn open_url(url: &str) -> Result<()> {
         }
     } else {
         let decision = decide(&cfg, url);
-        let final_url = decision.resolved_url.as_deref().unwrap_or(url);
+        // Launch the engine's canonical URL (scheme-less input gets the
+        // https:// it assumed) or the redirect-resolved destination.
+        let final_url = decision.resolved_url.as_deref().unwrap_or(&decision.url);
         let result = match &decision.outcome {
             Outcome::RuleMatched {
                 target, incognito, ..
@@ -42,6 +44,10 @@ pub fn open_url(url: &str) -> Result<()> {
             Outcome::Default { target } => launch_browser(&cfg, target, final_url, false),
             // Blocked URLs are swallowed without opening anything.
             Outcome::Blocked { .. } => Ok(()),
+            // decide() always resolves this to a terminal outcome; defensive.
+            Outcome::Resolve { .. } => Err(anyhow::anyhow!(
+                "redirect was not resolved to a terminal outcome"
+            )),
             Outcome::NoMatch => Err(anyhow::anyhow!(
                 "no rule matched and no default browser is configured"
             )),
@@ -73,15 +79,22 @@ pub fn open_url(url: &str) -> Result<()> {
     result
 }
 
-/// Evaluate the rules, resolving redirects when the clicked host is a
-/// configured redirector and no rule matched the original URL: the rules
-/// then see the final destination (trackers, shorteners). `decision.url`
-/// stays the clicked link; `decision.resolved_url` carries the final URL.
+/// Evaluate the rules, following redirects for links marked as wrappers:
+/// either a rule with the `resolve` target matched, or (legacy config) the
+/// clicked host sits in `redirect_hosts` and no rule matched. The rules
+/// then see the final destination. `decision.url` stays the clicked link;
+/// `decision.resolved_url` carries the final URL.
 pub fn decide(cfg: &config::Config, url: &str) -> Decision {
     let mut decision = engine::evaluate(cfg, url);
     if should_resolve_redirects(cfg, &decision) {
         if let Some(final_url) = crate::redirect::resolve(url) {
             let mut redirected = engine::evaluate(cfg, &final_url);
+            // A chain that lands on another wrapper (or loops back) stops
+            // here: fall back to the default browser rather than following
+            // forever.
+            if matches!(redirected.outcome, Outcome::Resolve { .. }) {
+                redirected.outcome = engine::default_outcome(cfg);
+            }
             redirected.url = url.to_string();
             redirected.resolved_url = Some(final_url);
             decision = redirected;
@@ -90,18 +103,21 @@ pub fn decide(cfg: &config::Config, url: &str) -> Decision {
     decision
 }
 
-/// Redirect resolution is deliberately gated on both conditions: no rule may
-/// have matched (matched links go straight out — no extra latency), and the
-/// clicked host must be user-configured in `redirect_hosts` (privacy: no
-/// other host is ever contacted).
+/// Redirect resolution is deliberately gated (latency + privacy: matched
+/// links go straight out, and no host is contacted unless the user marked
+/// it a wrapper) via either of:
+/// - a rule with the `resolve` target matching the clicked link, or
+/// - the legacy `redirect_hosts` list when NO rule matched the link.
 fn should_resolve_redirects(cfg: &config::Config, decision: &Decision) -> bool {
-    let unmatched = matches!(decision.outcome, Outcome::Default { .. } | Outcome::NoMatch);
-    let redirector = decision.host.as_deref().is_some_and(|h| {
-        cfg.redirect_hosts
-            .iter()
-            .any(|p| engine::host_pattern_matches(p, h))
-    });
-    unmatched && redirector
+    match &decision.outcome {
+        Outcome::Resolve { .. } => true,
+        Outcome::Default { .. } | Outcome::NoMatch => decision.host.as_deref().is_some_and(|h| {
+            cfg.redirect_hosts
+                .iter()
+                .any(|p| engine::host_pattern_matches(p, h))
+        }),
+        _ => false,
+    }
 }
 
 pub fn launch_browser(

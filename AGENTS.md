@@ -172,12 +172,14 @@ exposes `handler_ok` so the portal can show the real state.
   subdomain at any depth, dot-boundary respected (`example.com` matches
   `a.example.com`; `notexample.com` does not). Patterns containing other
   wildcards fall back to `globset` matching (see `matches_rule`).
-- **Redirect resolution** fires only when NO rule matched the original URL
-  AND the clicked host is listed in `config.redirect_hosts` — never for
-  every link (latency, privacy). It follows 3xx `Location` headers
-  (max 5 hops, 5s timeout) without reading response bodies and re-runs the
-  engine on the final URL; the event log stores the final URL plus
-  `origin_url`. Chains that end at an SSO interstitial (e.g.
+- **Redirect resolution** fires when a rule with the `resolve` target
+  matches the clicked URL (the Rules-page "Follow redirects" option), or
+  — legacy config — when NO rule matched and the host is listed in
+  `config.redirect_hosts`. It follows 3xx `Location` headers (max 5 hops,
+  5s timeout) without reading response bodies and re-runs the engine on
+  the final URL; the event log stores the final URL plus `origin_url`.
+  Chains that end at another `resolve` rule fall back to the default
+  browser (loop guard). Chains ending at an SSO interstitial (e.g.
   `login.microsoftonline.com`) can be routed precisely with host +
   `url_contains` on the destination query param (`redirect_uri=…`); the
   Dashboard "from host" button prefills this from the history entry's URL.

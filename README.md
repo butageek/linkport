@@ -45,13 +45,13 @@ Two binaries ship from one crate and must sit side by side:
   matchers with AND: host, plain-text URL contains, full-URL regex, scheme.
   Host matchers use cookie-domain semantics: `example.com` matches that
   host **and** all of its subdomains (`*.example.com` is an equivalent
-  alias). Targets are browser ids (optionally incognito/private) or
-  `block`.
-- **Redirect resolution** — links through tracker/shortener domains
-  (configured in Settings) that match no rule are followed to their final
-  destination — headers only, never page content, only configured hosts —
-  and routed by that destination, so one email tracker can land in
-  different browsers per real target.
+  alias). Targets are browser ids (optionally incognito/private),
+  `block`, or `resolve`.
+- **Redirect resolution** — rules with the `resolve` target mark
+  tracker/shortener domains: their links are followed to the final
+  destination — headers only, never page content, only hosts you mark —
+  and the rules are re-evaluated against it, so one email tracker can
+  land in different browsers per real target.
 - **Web portal** (Next.js 15 + TypeScript + shadcn/ui, embedded in the
   binary): dashboard with live dry-run trace + link history and one-click
   "create rule from this host", rules editor with reorder/toggles, browsers
@@ -136,7 +136,6 @@ hand:
 ```toml
 version = 1
 default_browser = "firefox"
-redirect_hosts = ["track.smtpsendemail.com", "bit.ly"]
 
 [portal]
 port = 14200
@@ -156,6 +155,12 @@ target = "work-chrome"
 name = "no trackers"
 host_glob = "tracker.io"
 target = "block"
+
+[[rules]]
+# tracker/shortener domains: follow the redirect, route by destination
+name = "email tracker"
+host_glob = "track.smtpsendemail.com"
+target = "resolve"
 ```
 
 ## Debugging

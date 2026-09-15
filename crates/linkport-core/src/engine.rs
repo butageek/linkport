@@ -1,7 +1,7 @@
 //! The URL rule engine: evaluates a URL against the ordered rule list and
 //! produces a decision with a full trace for explainability.
 
-use crate::config::{Config, Rule, TARGET_BLOCK};
+use crate::config::{Config, Rule, TARGET_BLOCK, TARGET_RESOLVE};
 use globset::Glob;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,11 @@ pub enum Outcome {
     Default { target: String },
     /// A rule matched and blocked the URL.
     Blocked { rule: String },
+    /// A rule matched with the `resolve` target: the caller should follow
+    /// the link's redirects and evaluate the rules against the final
+    /// destination. Intermediate only — never logged or returned by
+    /// `open::decide`, which always resolves it to a terminal outcome.
+    Resolve { rule: String },
     /// No rule matched and no usable default browser is configured.
     NoMatch,
 }
@@ -60,11 +65,29 @@ fn traced(rule: &Rule, matched: bool, reason: String) -> RuleTrace {
 }
 
 pub fn evaluate(cfg: &Config, raw_url: &str) -> Decision {
-    let parsed = Url::parse(raw_url).ok();
-    let host = parsed
-        .as_ref()
-        .and_then(|u| u.host_str())
-        .map(|h| h.to_lowercase());
+    // Scheme-less input ("www.example.com") is normalized like a browser's
+    // address bar: https:// is assumed, so rules match on the host and the
+    // launched URL is a valid one.
+    let raw_url = raw_url.trim();
+    let has_scheme = raw_url.contains("://");
+    let direct = Url::parse(raw_url).ok();
+    // Candidate parse of the assumed https:// form; never tried for full
+    // URLs, so they can only ever resolve to themselves.
+    let prefixed = if has_scheme {
+        None
+    } else {
+        Url::parse(&format!("https://{raw_url}")).ok()
+    };
+    let parsed = direct.as_ref().or(prefixed.as_ref());
+    // `decision.url` carries the normalized form: input without a ://
+    // scheme that parses keeps the assumed https:// prefix; full URLs and
+    // unparseable input stay as typed.
+    let url = if parsed.is_some() && !has_scheme {
+        format!("https://{raw_url}")
+    } else {
+        raw_url.to_string()
+    };
+    let host = parsed.and_then(|u| u.host_str()).map(|h| h.to_lowercase());
     let scheme = parsed.map(|u| u.scheme().to_ascii_lowercase());
 
     let mut trace = Vec::new();
@@ -76,19 +99,23 @@ pub fn evaluate(cfg: &Config, raw_url: &str) -> Decision {
         match matches_rule(rule, raw_url, host.as_deref(), scheme.as_deref()) {
             MatchResult::Match => {
                 trace.push(traced(rule, true, "matched".to_string()));
-                let outcome = if rule.target == TARGET_BLOCK {
-                    Outcome::Blocked {
+                // `block`/`resolve` are special targets; anything else is a
+                // browser id.
+                let outcome = match rule.target.as_str() {
+                    TARGET_BLOCK => Outcome::Blocked {
                         rule: rule.name.clone(),
-                    }
-                } else {
-                    Outcome::RuleMatched {
+                    },
+                    TARGET_RESOLVE => Outcome::Resolve {
+                        rule: rule.name.clone(),
+                    },
+                    _ => Outcome::RuleMatched {
                         rule: rule.name.clone(),
                         target: rule.target.clone(),
                         incognito: rule.incognito,
-                    }
+                    },
                 };
                 return Decision {
-                    url: raw_url.to_string(),
+                    url: url.clone(),
                     host,
                     scheme,
                     outcome,
@@ -100,17 +127,24 @@ pub fn evaluate(cfg: &Config, raw_url: &str) -> Decision {
         }
     }
 
-    let outcome = match &cfg.default_browser {
-        Some(t) if cfg.browsers.contains_key(t) => Outcome::Default { target: t.clone() },
-        _ => Outcome::NoMatch,
-    };
+    let outcome = default_outcome(cfg);
     Decision {
-        url: raw_url.to_string(),
+        url,
         host,
         scheme,
         outcome,
         trace,
         resolved_url: None,
+    }
+}
+
+/// What to do when no rule matched: the configured default browser, or
+/// `NoMatch` when none is usable. Also the terminal fallback for a
+/// redirect chain that ends up on another `resolve` rule.
+pub fn default_outcome(cfg: &Config) -> Outcome {
+    match &cfg.default_browser {
+        Some(t) if cfg.browsers.contains_key(t) => Outcome::Default { target: t.clone() },
+        _ => Outcome::NoMatch,
     }
 }
 
@@ -208,6 +242,44 @@ mod tests {
             target: target.into(),
             incognito: false,
         }
+    }
+
+    #[test]
+    fn scheme_less_input_assumes_https() {
+        let c = cfg(
+            vec![rule("li", Some("www.linkedin.com"), "ff")],
+            Some("chrome"),
+        );
+        let d = evaluate(&c, "  www.linkedin.com  ");
+        assert!(matches!(d.outcome, Outcome::RuleMatched { .. }));
+        assert_eq!(d.host.as_deref(), Some("www.linkedin.com"));
+        assert_eq!(d.url, "https://www.linkedin.com");
+        // full URLs pass through untouched
+        let d2 = evaluate(&c, "https://www.linkedin.com/feed/");
+        assert_eq!(d2.url, "https://www.linkedin.com/feed/");
+    }
+
+    #[test]
+    fn resolve_target_yields_resolve_outcome() {
+        let c = cfg(
+            vec![
+                rule("tracker", Some("track.example.com"), TARGET_RESOLVE),
+                rule("portal", Some("portal.example.com"), "ff"),
+            ],
+            Some("chrome"),
+        );
+        let d = evaluate(&c, "http://track.example.com/c?p=1");
+        assert_eq!(
+            d.outcome,
+            Outcome::Resolve {
+                rule: "tracker".into()
+            }
+        );
+        // the destination rule matches normally on the final URL
+        assert!(matches!(
+            evaluate(&c, "https://portal.example.com/x").outcome,
+            Outcome::RuleMatched { .. }
+        ));
     }
 
     #[test]

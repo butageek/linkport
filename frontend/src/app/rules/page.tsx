@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { api } from "@/lib/api";
-import type { Rule } from "@/lib/types";
+import type { Browser, Rule } from "@/lib/types";
 import { useConfigEditor } from "@/lib/use-config-editor";
 import { WarningsBanner } from "@/components/warnings-banner";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/table";
 
 const BLOCK = "block";
+const RESOLVE = "resolve";
 
 function emptyRule(): Rule {
   return {
@@ -51,6 +52,27 @@ function matcherSummary(rule: Rule): string[] {
   if (rule.url_regex) parts.push(`regex: ${rule.url_regex}`);
   if (rule.scheme) parts.push(`scheme: ${rule.scheme}`);
   return parts;
+}
+
+function TargetBadge({
+  rule,
+  browsers,
+}: {
+  rule: Rule;
+  browsers: Record<string, Browser>;
+}) {
+  if (rule.target === BLOCK) {
+    return <Badge variant="destructive">blocked</Badge>;
+  }
+  if (rule.target === RESOLVE) {
+    return <Badge variant="outline">→ follows redirects</Badge>;
+  }
+  return (
+    <Badge variant="secondary">
+      {browsers[rule.target]?.display_name ?? rule.target}
+      {rule.incognito ? " (private)" : ""}
+    </Badge>
+  );
 }
 
 // Well-known query parameters that carry the real destination on
@@ -170,7 +192,9 @@ export default function RulesPage() {
               <code className="bg-muted rounded px-1">example.com</code> matches that host
               and all of its subdomains (any depth); the
               <code className="bg-muted rounded px-1">*.</code> prefix is an equivalent
-              alias.
+              alias. For tracker/shortener domains, pick{" "}
+              <em>Follow redirects</em> as the target — routing then sees the link&apos;s
+              real destination, which you can match with a rule like this one.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -201,9 +225,10 @@ export default function RulesPage() {
                       {b.display_name}
                     </option>
                   ))}
-                  <option value={BLOCK}>
-                    Block (open nothing)
+                  <option value={RESOLVE}>
+                    Follow redirects (route by final destination)
                   </option>
+                  <option value={BLOCK}>Block (open nothing)</option>
                 </NativeSelect>
               </div>
               <div className="flex flex-col gap-2">
@@ -325,14 +350,7 @@ export default function RulesPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {r.target === BLOCK ? (
-                        <Badge variant="destructive">blocked</Badge>
-                      ) : (
-                        <Badge variant="secondary">
-                          {config.browsers[r.target]?.display_name ?? r.target}
-                          {r.incognito ? " (private)" : ""}
-                        </Badge>
-                      )}
+                      <TargetBadge rule={r} browsers={config.browsers} />
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end">

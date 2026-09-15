@@ -62,6 +62,7 @@ Linkport is MIT-licensed. See LICENSE in this folder.
 
 REDIRECTING LINKS (OPTIONAL)
 - Email trackers and URL shorteners hide the real destination behind one
-  domain. Settings > "Redirecting hosts": add e.g. track.example.com and
-  Linkport will follow such links to their final destination and route by
-  that - so the same tracker can open in different browsers per target.
+  domain. Rules: create a rule for e.g. track.example.com and pick
+  "Follow redirects" as the target - Linkport will follow such links to
+  their final destination and route by that, so the same tracker can open
+  in different browsers per target.
