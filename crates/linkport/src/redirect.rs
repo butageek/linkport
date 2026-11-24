@@ -1,10 +1,15 @@
 //! Redirect resolution for tracker/shortener links.
 //!
-//! When a clicked URL's host is configured in `redirect_hosts` and no rule
-//! matched it, the hot path calls [`resolve`] to follow the HTTP redirect
-//! chain — reading only status + `Location` headers, never response bodies
-//! — so the rules can be evaluated against the final destination. Only
-//! hosts the user configured are ever contacted.
+//! When a clicked link is marked as a wrapper — by a rule with the
+//! `resolve` target matching it, or (legacy config) by its host sitting in
+//! `redirect_hosts` with no rule matched — the hot path calls [`resolve`]
+//! to follow the HTTP redirect chain, reading only status + `Location`
+//! headers, never response bodies, so the rules can be evaluated against
+//! the final destination. Only links the user marked are ever contacted.
+//!
+//! A chain that yields no redirect, or that cannot be followed (offline,
+//! timeout, non-web scheme), returns `None` and the caller routes the
+//! clicked link itself.
 
 use std::time::Duration;
 use url::Url;

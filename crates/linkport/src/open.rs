@@ -84,20 +84,30 @@ pub fn open_url(url: &str) -> Result<()> {
 /// clicked host sits in `redirect_hosts` and no rule matched. The rules
 /// then see the final destination. `decision.url` stays the clicked link;
 /// `decision.resolved_url` carries the final URL.
+///
+/// When nothing is resolved (the link did not redirect, the fetch failed,
+/// a non-web scheme) the clicked link itself is routed: a `resolve` target
+/// is never terminal, so it degrades to the default browser. The outcome
+/// returned here is therefore always terminal.
 pub fn decide(cfg: &config::Config, url: &str) -> Decision {
     let mut decision = engine::evaluate(cfg, url);
     if should_resolve_redirects(cfg, &decision) {
-        if let Some(final_url) = crate::redirect::resolve(url) {
-            let mut redirected = engine::evaluate(cfg, &final_url);
-            // A chain that lands on another wrapper (or loops back) stops
-            // here: fall back to the default browser rather than following
-            // forever.
-            if matches!(redirected.outcome, Outcome::Resolve { .. }) {
-                redirected.outcome = engine::default_outcome(cfg);
+        match crate::redirect::resolve(url) {
+            Some(final_url) => {
+                let mut redirected = engine::evaluate(cfg, &final_url);
+                // A chain that lands on another wrapper (or loops back)
+                // stops here: fall back to the default browser rather than
+                // following forever.
+                if matches!(redirected.outcome, Outcome::Resolve { .. }) {
+                    redirected.outcome = engine::default_outcome(cfg);
+                }
+                redirected.url = url.to_string();
+                redirected.resolved_url = Some(final_url);
+                decision = redirected;
             }
-            redirected.url = url.to_string();
-            redirected.resolved_url = Some(final_url);
-            decision = redirected;
+            // For the legacy redirect_hosts path the outcome is already
+            // terminal (Default/NoMatch) and this is a no-op.
+            None => decision.outcome = engine::default_outcome(cfg),
         }
     }
     decision
@@ -165,4 +175,81 @@ pub fn list_browsers() -> Result<()> {
         _ => {}
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use linkport_core::config::{Browser, Rule, TARGET_RESOLVE};
+
+    fn cfg(rules: Vec<Rule>, redirect_hosts: &[&str], default: Option<&str>) -> config::Config {
+        let mut c = config::Config::default();
+        c.browsers.insert(
+            "ff".into(),
+            Browser {
+                display_name: "Firefox".into(),
+                exe: "firefox".into(),
+                args: vec!["{url}".into()],
+                incognito_args: None,
+            },
+        );
+        c.default_browser = default.map(String::from);
+        c.rules = rules;
+        c.redirect_hosts = redirect_hosts.iter().map(|s| s.to_string()).collect();
+        c
+    }
+
+    fn resolve_rule() -> Rule {
+        Rule {
+            name: "tracker".into(),
+            enabled: true,
+            host_glob: Some("127.0.0.1".into()),
+            url_contains: None,
+            url_regex: None,
+            scheme: None,
+            target: TARGET_RESOLVE.into(),
+            incognito: false,
+        }
+    }
+
+    /// Nothing listens on port 1 of the loopback interface, so the redirect
+    /// fetch is refused on the spot — no network, no timeout wait.
+    const DEAD_LINK: &str = "http://127.0.0.1:1/x";
+
+    #[test]
+    fn resolve_rule_degrades_to_default_when_nothing_is_resolved() {
+        let c = cfg(vec![resolve_rule()], &[], Some("ff"));
+        let d = decide(&c, DEAD_LINK);
+        assert_eq!(
+            d.outcome,
+            Outcome::Default {
+                target: "ff".into()
+            }
+        );
+        assert_eq!(d.url, DEAD_LINK, "the clicked link is what gets routed");
+        assert!(d.resolved_url.is_none());
+        assert!(
+            d.trace[0].matched,
+            "the resolve rule still traces as matched"
+        );
+    }
+
+    #[test]
+    fn resolve_rule_without_default_degrades_to_no_match() {
+        let c = cfg(vec![resolve_rule()], &[], None);
+        assert_eq!(decide(&c, DEAD_LINK).outcome, Outcome::NoMatch);
+    }
+
+    #[test]
+    fn legacy_redirect_hosts_keep_their_terminal_outcome() {
+        let c = cfg(vec![], &["127.0.0.1"], Some("ff"));
+        let d = decide(&c, DEAD_LINK);
+        assert_eq!(
+            d.outcome,
+            Outcome::Default {
+                target: "ff".into()
+            }
+        );
+        assert!(d.resolved_url.is_none());
+    }
 }

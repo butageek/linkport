@@ -179,7 +179,10 @@ exposes `handler_ok` so the portal can show the real state.
   5s timeout) without reading response bodies and re-runs the engine on
   the final URL; the event log stores the final URL plus `origin_url`.
   Chains that end at another `resolve` rule fall back to the default
-  browser (loop guard). Chains ending at an SSO interstitial (e.g.
+  browser (loop guard) — and so does a fetch that yields no redirect
+  (offline, timeout, non-web scheme, a 200 on the wrapper host):
+  `open::decide()` never returns `Outcome::Resolve`; the clicked link goes
+  to the default browser. Chains ending at an SSO interstitial (e.g.
   `login.microsoftonline.com`) can be routed precisely with host +
   `url_contains` on the destination query param (`redirect_uri=…`); the
   Dashboard "from host" button prefills this from the history entry's URL.
