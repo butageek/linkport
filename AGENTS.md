@@ -33,6 +33,8 @@ cargo build --release --target x86_64-pc-windows-gnu -p linkport
 ./scripts/build.sh                          # frontend + release, all-in-one
 ./scripts/package.sh                        # build + dist/linkport-<ver>-win64.zip
 cargo fmt --all                             # repo is kept fmt-clean; run before committing
+# on Windows, with a local build (the README one-liner without the download):
+powershell -ExecutionPolicy Bypass -File tools\install.ps1 -BinDir .\target\x86_64-pc-windows-gnu\release
 ```
 
 ## Release discipline (for AI agents and humans)
@@ -55,14 +57,22 @@ address it by workflow name or ID; the `CI.yml` filename form 404s on
 GitHub's dispatch API) and on every PR — everyday pushes deliberately
 trigger nothing (they are for preservation). Pushing a version tag
 (`v*`) triggers `.github/workflows/release.yml`: tests + `package.sh` +
-a published GitHub Release.
+a published GitHub Release (idempotent: re-pushing a tag re-uploads the
+zip with `--clobber` instead of failing). The installer and the in-app
+update both fetch `linkport-*-win64.zip` from `releases/latest` — keep
+the zip name pattern `package.sh` produces.
 
 Maintainers keep machine-specific notes (WSL paths, deploy routine) in a
 gitignored `AGENTS.local.md` next to this file.
 
 ## Windows integration state (all HKCU, no admin)
-`<install>` below means the directory holding the two exes (the install
-path is registered with Windows — moving it requires re-registering).
+`<install>` below means the directory holding the two exes —
+`%LOCALAPPDATA%\Programs\Linkport` for the one-liner install (per-user,
+no admin, no UAC on upgrade; the location VS Code's user installer and
+most modern per-user Win32 apps use). Older manual installs may sit
+elsewhere (`C:\Tools\Linkport`) until `tools/install.ps1` moves them.
+The install path is registered with Windows — moving it requires
+re-registering, which the daemon's self-heal (below) does in place.
 
 | Purpose | Key / mechanism | Value shape |
 |---|---|---|
@@ -88,6 +98,69 @@ values in place (no key create/delete, so `UserChoice` survives — the
 Chrome-update model) and repairs a stale Run value. `api::status`
 exposes `handler_ok` so the portal can show the real state.
 
+## In-app updates & installer
+
+Pattern borrowed from pound (same maintainer): **the official installer is
+the upgrader**, and the app's "update" action just runs it.
+
+- `tools/install.ps1` (README one-liner, download-then-run-as-file) installs
+  to `%LOCALAPPDATA%\Programs\Linkport`: stops any daemon, copies both
+  exes (+ any DLLs, QUICK-START, LICENSE), Start Menu shortcut, user PATH
+  (`-NoPath` to skip), registers **only when not registered yet** (the
+  handler path is repaired in place otherwise — re-registering can reset
+  the hashed `UserChoice`), repoints the Run auto-start value if one
+  exists, removes a previous install elsewhere only when that folder holds
+  nothing but Linkport's files, then starts the daemon (`-NoLaunch` to
+  skip). `-BinDir` / `-DownloadUrl` / `-InstallDir` / `-Repo` for local
+  builds and tests. `tools/uninstall.ps1` reverses it and keeps
+  `%APPDATA%\linkport` unless `-PurgeData`.
+- Startup check (config-gated) → tray item **Install update v…** /
+  Settings **Install now** → `POST /api/update/install` →
+  `update::install_in_background`: spawns PowerShell hidden with stdout+
+  stderr appended to `%APPDATA%\linkport\update.log`; the script
+  downloads the installer from raw `main` and runs it. The installer runs
+  `linkport-cli stop` → `POST /api/quit` (bearer = the token file) → the
+  daemon's `AppState.quit` watch channel → the same graceful exit as the
+  tray's Quit (clean tray-icon removal). The installer then replaces the
+  exes and relaunches `linkport.exe serve` (first run reopens the portal
+  via the existing token logic). Installing is **never automatic** — it is
+  always the user's click.
+- If the installer exits while the daemon is still alive, it never reached
+  the replace step (download failed, …): the waiting thread posts
+  `CMD_UPDATE_FAILED`, the tray item goes back to "Install update v…"
+  with "see update.log", and `INSTALLING` is cleared so the Settings page
+  (which polls `/api/ping` for a new version) reports the failure instead
+  of waiting out its 3-minute deadline.
+- `is_newer` is strict (exactly three numeric parts, prerelease suffixes →
+  not newer): a bad tag must never be *installed*.
+- GOTCHA (PS 5.1): `irm … | iex` cannot run a script with a `param()` block
+  — hence the download-then-`-File` one-liner, and the daemon's
+  `installer_script()` doing the same.
+- GOTCHA (PowerShell): the call operator does NOT wait for GUI-subsystem
+  binaries and leaves `$LASTEXITCODE` unset; and with
+  `$ErrorActionPreference = 'Stop'` any stderr line from a native command
+  under `&` becomes a terminating error before the exit code can be read.
+  Run `linkport-cli` from scripts with `Start-Process -Wait -PassThru`
+  plus `-RedirectStandardOutput/Error` to temp files (see
+  `Invoke-LinkportCli`), and launch the daemon with `Start-Process`.
+- GOTCHA (PS 5.1): profiles with dots in the username get 8.3 short-form
+  TEMP/LOCALAPPDATA (`C:\Users\HENDRY~1.CHO\…`), which trips `Remove-Item`
+  with a *terminating* error that `-ErrorAction SilentlyContinue` cannot
+  suppress. Canonicalize via `Resolve-Path`/`GetFolderPath`, use
+  `-LiteralPath`, and guard cleanup with try/catch (the scripts do).
+- GOTCHA: `Write-Host` from powershell.exe lands on its stdout when
+  redirected — that is why the daemon can transcript the installer into
+  `update.log` (and pound can stream it into a toast). Do not pipe it:
+  the daemon is gone before the installer finishes, and a broken pipe
+  under `ErrorActionPreference = Stop` could abort the install.
+- GOTCHA: `Get-Process -Name linkport` matches `linkport.exe` only (the
+  daemon, the URL handler, `restart`) — never `linkport-cli`, so the cli
+  running `stop` never kills itself. Filter by `.Path` so a daemon from
+  another install dir is not caught by accident (the installer stops
+  those explicitly, previous dirs first).
+- WSL: none of this can run on the Linux dev box; the PowerShell files
+  have no syntax check here. Read changes to them twice.
+
 ## Runtime state
 
 `%APPDATA%\linkport` (Windows) / `~/.config/linkport` (Linux):
@@ -99,6 +172,9 @@ exposes `handler_ok` so the portal can show the real state.
   (**primary debugging tool**: check the newest line after a click)
 - `paused.flag` — presence = routing paused (hot path sends everything to
   `default_browser`)
+- `update.log` — output of the last in-place update the daemon started
+  (the installer's transcript); the tray/portal point here when an update
+  did not complete
 
 ## Architecture map
 
@@ -115,11 +191,17 @@ exposes `handler_ok` so the portal can show the real state.
 - `crates/linkport` — `lib.rs` (`open.rs` hot path + redirect-aware
   `decide()`, `redirect.rs` headers-only redirect resolution (ureq),
   `update.rs` GitHub `releases/latest` update checks (startup, tray,
-  `POST /api/update/check`; semver compare + tray labels are unit-tested),
-  `portal.rs` axum daemon + static SPA serving + auth, `api.rs` JSON API,
-  `tray.rs`) and bins `linkport.rs` (the windowless GUI-subsystem main
-  binary: URL handler + `serve`/no-args daemon) / `linkport_cli.rs`
-  (console CLI: test/register/browsers/dev serve).
+  `POST /api/update/check`; strict semver compare + tray labels are
+  unit-tested) plus the in-place upgrade (`install_in_background` spawns
+  the official installer, see below), `portal.rs` axum daemon + static SPA
+  serving + auth (+ `request_quit`, the client side of `/api/quit`),
+  `api.rs` JSON API, `tray.rs`) and bins `linkport.rs` (the windowless
+  GUI-subsystem main binary: URL handler + `serve`/no-args daemon) /
+  `linkport_cli.rs` (console CLI: test/register/stop/browsers/dev serve).
+- `tools/` — `install.ps1` / `uninstall.ps1`: the README one-liner.
+  `install.ps1` is also the in-place upgrader the daemon spawns, so a
+  change to it ships to every existing install immediately (raw
+  `main` URL) — treat it like a release.
 - `frontend/` — Next.js 15 **static export** (`output: 'export'`), React 19,
   shadcn/ui, Tailwind v4. All pages are client components. API client in
   `src/lib/api.ts`, shared types in `src/lib/types.ts` (mirror the Rust
@@ -137,12 +219,16 @@ exposes `handler_ok` so the portal can show the real state.
 - New config field → `linkport-core/src/config.rs` (serde defaults,
   roundtrip test) + portal UI.
 - Update checks: `crates/linkport/src/update.rs` owns the model, the
-  GitHub lookup and the tray label strings (keep them host-testable;
-  tray.rs only wires menu items). The result lives in
-  `AppState.update` (Arc<Mutex<Option<UpdateCheck>>>); every writer —
+  GitHub lookup, the tray label strings and the installer spawn (keep the
+  strings host-testable; tray.rs only wires menu items). The result lives
+  in `AppState.update` (Arc<Mutex<Option<UpdateCheck>>>); every writer —
   startup check, tray click, `/api/update/check` — stores it there and
   calls `tray::notify_update_checked()` so the tray thread re-texts the
-  menu items (items are not `Send`; see the WM_APP gotcha).
+  menu items (items are not `Send`; see the WM_APP gotcha). Installing
+  (`/api/update/install` or the tray item) goes through
+  `update::install_in_background`, which posts `notify_update_installing`
+  / `notify_update_install_failed` the same way and toggles the
+  `INSTALLING` flag that `/api/status` exposes as `installing`.
 - New Windows registry integration → new module in `linkport-win` with
   imp/stub split.
 
@@ -212,13 +298,18 @@ exposes `handler_ok` so the portal can show the real state.
 5. Behavior on a Windows install: `linkport-cli.exe test "<url>"`, then
    check the newest `events.jsonl` line; user verifies tray/portal
    behavior on the desktop
+6. After touching `tools/*.ps1` (no PowerShell on the Linux dev box):
+   `tools\install.ps1 -BinDir <build dir>` on Windows — fresh install,
+   upgrade over it, and `linkport-cli stop` (the daemon's tray icon must
+   vanish cleanly, no ghost); the in-app path: tray → "Install update"
+   after bumping the version locally, then check `update.log`
 
 ## Current limitations / next ideas
 
 - Ambiguous-link picker dialog (websteer-style), browser-running heuristic,
   shortener expansion — see README roadmap.
-- No installer, no code signing (SmartScreen warns on the unsigned exe);
-  distribution is a portable zip — a winget manifest is a natural next
-  step once there is a public release.
+- No code signing (SmartScreen warns on the unsigned exe; the installer
+  and quick-start say "More info" → "Run anyway") — a winget manifest
+  is a natural next step once there is a public release.
 - Linux port: core is ready; needs `.desktop` + `xdg-settings` glue in a
   `linkport-linux` crate.

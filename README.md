@@ -16,6 +16,51 @@ getting in your way.
 > [AGENTS.md](AGENTS.md) for the full environment, build, deploy and
 > debugging playbook (written for humans *and* AI coding agents).
 
+## Install (Windows, no admin rights)
+
+Open PowerShell and paste — it downloads the latest release and installs
+it to `%LOCALAPPDATA%\Programs\Linkport` (the per-user location modern
+Windows apps use: no admin rights, no UAC prompt on upgrades, program files
+kept apart from your data in `%APPDATA%\linkport`), adds a Start Menu
+shortcut and your user `PATH`, registers Linkport as a browser candidate
+and starts it:
+
+```powershell
+powershell -c "irm https://raw.githubusercontent.com/butageek/linkport/main/tools/install.ps1 -OutFile $env:TEMP\linkport-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\linkport-install.ps1"
+```
+
+(Run as a file on purpose — piping a script into `iex` breaks on Windows
+PowerShell 5.1 when it declares parameters. Under **PowerShell 7** the short
+form works too: `irm https://raw.githubusercontent.com/butageek/linkport/main/tools/install.ps1 | iex`.)
+
+The portal opens in your browser on the first run. Then make Linkport your
+default browser — one click in Windows Settings, see
+[below](#making-linkport-your-default-browser-windows).
+
+**Upgrades use the exact same command** — it stops a running Linkport
+(gracefully, then forcefully), replaces the exes and starts it again. Or
+let the app do it: Linkport checks GitHub for a newer release when it
+starts, and the tray menu then gets an **Install update** item (Settings
+has the same button) that runs this installer for you. Nothing is ever
+installed without your click.
+
+Already running a copy from somewhere else (e.g. `C:\Tools\Linkport`)?
+The installer moves it over: the registration and the sign-in auto-start
+entry are repointed, and the old folder is removed once it holds nothing
+but Linkport's own files.
+
+Prefer a manual install from the [releases page](https://github.com/butageek/linkport/releases)?
+Grab `linkport-<version>-win64.zip`, extract it somewhere permanent
+(`%LOCALAPPDATA%\Programs\Linkport` is a good default) and follow the
+bundled `QUICK-START.txt`.
+
+Uninstall (keeps your rules and history; add `-PurgeData` to remove those
+too):
+
+```powershell
+powershell -c "irm https://raw.githubusercontent.com/butageek/linkport/main/tools/uninstall.ps1 -OutFile $env:TEMP\linkport-uninstall.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\linkport-uninstall.ps1"
+```
+
 ## How it works
 
 ```
@@ -59,7 +104,8 @@ Two binaries ship from one crate and must sit side by side:
   one-click registration.
 - **System tray** — version, portal URL, **Start Linkport when I sign in**
   (native `HKCU\…\Run` key, no Task Scheduler), **Pause routing** (all links
-  → default browser until unpaused), Restart (quit + relaunch in one click —
+  → default browser until unpaused), **Check for updates** (→ **Install
+  update** when one is known), Restart (quit + relaunch in one click —
   applies a changed portal port), Quit (graceful shutdown; link routing
   keeps working — restart via the Start-menu "Linkport" entry, by
   double-clicking `linkport.exe`, or by signing in again).
@@ -83,6 +129,9 @@ frontend/            # Next.js 15 static export + shadcn/ui (Tailwind v4),
                     # embedded via rust-embed and served by axum
 resources/           # tray icon assets (see scripts/gen_icon.py)
 scripts/             # build.sh (full Windows release), gen_icon.py
+tools/               # install.ps1 / uninstall.ps1 — the README one-liner
+                    # (per-user install to %LOCALAPPDATA%\Programs\Linkport);
+                    # install.ps1 doubles as the in-place upgrader the tray runs
 ```
 
 State lives in `%APPDATA%\linkport` (`~/.config/linkport` on Linux):
@@ -109,25 +158,26 @@ cargo check --target x86_64-pc-windows-gnu --workspace --all-targets
 ./scripts/package.sh                          # shareable zip: exes + QUICK-START + LICENSE
 ```
 
-CI runs on demand (`gh workflow run CI.yml` or the Actions tab) and on
-every pull request; pushing a version tag (`v*`) runs the tests, builds
-the zip and publishes a GitHub Release automatically.
+CI runs on demand (`gh workflow run CI` — by workflow name; the
+`CI.yml` filename form 404s on GitHub's dispatch API — or from the Actions
+tab) and on every pull request; pushing a version tag (`v*`) runs the
+tests, builds the zip and publishes a GitHub Release automatically.
 
-## Installing as the default browser (Windows)
+## Making Linkport your default browser (Windows)
 
-1. Copy **both** `linkport.exe` and `linkport-cli.exe` somewhere permanent,
-   side by side (e.g. `C:\Tools\Linkport`).
-2. Run `linkport-cli.exe register`.
-3. **Settings → Apps → Default apps → Linkport** → set default for HTTP and
+The installer registers Linkport as a browser candidate; the one step
+Windows reserves for you by hand:
+
+1. **Settings → Apps → Default apps → Linkport** → set default for HTTP and
    HTTPS. (Windows deliberately prevents apps from doing this
    programmatically.)
-4. Start the daemon once — double-click `linkport.exe` (or run
-   `linkport-cli.exe serve` to see console logs) — and enable **Start
-   Linkport when I sign in** in the tray menu. The daemon also creates a
-   **Linkport** Start-menu shortcut for restarting after a tray Quit.
+2. Enable **Start Linkport when I sign in** in the tray menu. The daemon
+   also creates a **Linkport** Start-menu shortcut for restarting after a
+   tray Quit.
 
-From then on: reboot → tray appears, links route by your rules, and the
-portal is one click (or one reboot on first run) away.
+Manual installs: run `linkport-cli.exe register` before step 1. From then
+on: reboot → tray appears, links route by your rules, and the portal is
+one click (or one reboot on first run) away.
 
 ## Configuration
 
@@ -169,6 +219,8 @@ target = "resolve"
 - `linkport-cli.exe test "<url>"` — dry-run printing the full decision trace.
 - `%APPDATA%\linkport\events.jsonl` — every opened link with its outcome and
   any launch errors (also visible on the Dashboard).
+- `%APPDATA%\linkport\update.log` — transcript of the last in-place update
+  started from the tray or Settings.
 - Dashboard → "Try a URL" — same trace, in the portal.
 
 ## Roadmap
@@ -178,9 +230,8 @@ target = "resolve"
 - [ ] Shift-to-choose override: hold Shift while clicking a link to pick a
       browser once (optionally saving the choice as a rule) — opt-in only,
       never an unprompted dialog
-- [ ] Installer + code signing (today: `./scripts/package.sh` builds a
-      shareable zip with a quick-start guide; SmartScreen warns on the
-      unsigned exes — recipients click "More info" → "Run anyway")
+- [ ] Code signing (today `tools/install.ps1` installs the unsigned zip
+      build; SmartScreen warns on first run — "More info" → "Run anyway")
 - [ ] winget manifest once the release has some real-world use
 - [ ] Linux support (`.desktop` + `xdg-settings`) — the core is portable
 
