@@ -69,10 +69,11 @@ gitignored `AGENTS.local.md` next to this file.
 `<install>` below means the directory holding the two exes —
 `%LOCALAPPDATA%\Programs\Linkport` for the one-liner install (per-user,
 no admin, no UAC on upgrade; the location VS Code's user installer and
-most modern per-user Win32 apps use). Older manual installs may sit
-elsewhere (`C:\Tools\Linkport`) until `tools/install.ps1` moves them.
+most modern per-user Win32 apps use). A manual copy elsewhere
+(`C:\Tools\Linkport`) is migrated by quitting its daemon, deleting it and
+running `tools/install.ps1`, which repoints the registration in place.
 The install path is registered with Windows — moving it requires
-re-registering, which the daemon's self-heal (below) does in place.
+re-registering, which the daemon's self-heal (below) also does in place.
 
 | Purpose | Key / mechanism | Value shape |
 |---|---|---|
@@ -104,15 +105,16 @@ Pattern borrowed from pound (same maintainer): **the official installer is
 the upgrader**, and the app's "update" action just runs it.
 
 - `tools/install.ps1` (README one-liner, download-then-run-as-file) installs
-  to `%LOCALAPPDATA%\Programs\Linkport`: stops any daemon, copies both
-  exes (+ any DLLs, QUICK-START, LICENSE), Start Menu shortcut, user PATH
-  (`-NoPath` to skip), registers **only when not registered yet** (the
-  handler path is repaired in place otherwise — re-registering can reset
-  the hashed `UserChoice`), repoints the Run auto-start value if one
-  exists, removes a previous install elsewhere only when that folder holds
-  nothing but Linkport's files, then starts the daemon (`-NoLaunch` to
-  skip). `-BinDir` / `-DownloadUrl` / `-InstallDir` / `-Repo` for local
-  builds and tests. `tools/uninstall.ps1` reverses it and keeps
+  to `%LOCALAPPDATA%\Programs\Linkport`: stops every running daemon,
+  copies both exes (+ any DLLs, QUICK-START, LICENSE), Start Menu shortcut,
+  user PATH (`-NoPath` to skip), registers **only when not registered
+  yet** (the handler path is repaired in place otherwise — re-registering
+  can reset the hashed `UserChoice`), repoints the Run auto-start value if
+  one exists, then starts the daemon (`-NoLaunch` to skip). Settings never
+  live in the install dir (`%APPDATA%\linkport` is untouched), which is
+  all the migration a manual copy elsewhere needs: quit it, delete it, run
+  the installer. `-BinDir` / `-DownloadUrl` / `-InstallDir` / `-Repo` for
+  local builds and tests. `tools/uninstall.ps1` reverses it and keeps
   `%APPDATA%\linkport` unless `-PurgeData`.
 - Startup check (config-gated) → tray item **Install update v…** /
   Settings **Install now** → `POST /api/update/install` →
@@ -155,9 +157,9 @@ the upgrader**, and the app's "update" action just runs it.
   under `ErrorActionPreference = Stop` could abort the install.
 - GOTCHA: `Get-Process -Name linkport` matches `linkport.exe` only (the
   daemon, the URL handler, `restart`) — never `linkport-cli`, so the cli
-  running `stop` never kills itself. Filter by `.Path` so a daemon from
-  another install dir is not caught by accident (the installer stops
-  those explicitly, previous dirs first).
+  running `stop` never kills itself. No path filter on purpose: every
+  `linkport.exe` shares `%APPDATA%\linkport` and therefore the portal
+  port, so any of them must go before the new daemon can bind.
 - WSL: none of this can run on the Linux dev box; the PowerShell files
   have no syntax check here. Read changes to them twice.
 

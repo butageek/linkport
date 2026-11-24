@@ -24,12 +24,15 @@
 #   2. Creates the Start Menu shortcut and (optionally) adds the install
 #      dir to the user PATH (so `linkport-cli` works from any terminal)
 #   3. Registers Linkport as a browser candidate - only when it is not
-#      registered yet; the handler path is repaired in place otherwise
-#      (re-registering can reset Windows' hashed default-browser choice)
-#   4. Moves an install that lives elsewhere (e.g. C:\Tools\Linkport) over:
-#      repoints the sign-in auto-start entry and removes the old copy when
-#      that folder holds nothing but Linkport's own files (says so otherwise)
+#      registered yet; otherwise the existing registration is pointed at
+#      this install by rewriting its values in place (re-registering can
+#      reset Windows' hashed default-browser choice)
+#   4. Points the sign-in auto-start entry at this install when one exists
 #   5. Starts the daemon (the portal opens by itself on the very first run)
+#
+# Settings never live in the install dir: rules, history and the portal
+# token are in %APPDATA%\linkport and are not touched, and the Windows
+# default-browser choice survives the in-place repair in step 3.
 #Requires -Version 5.1
 [CmdletBinding()]
 param(
@@ -80,13 +83,12 @@ if ($InstallDir -eq '') {
 function Write-Step([string]$msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 function Write-Note([string]$msg) { Write-Host "    $msg" -ForegroundColor DarkGray }
 
-# Processes named linkport (the daemon, the URL handler and `restart`
-# flavors - never linkport-cli) running from the given exe path.
+# Every process named linkport (the daemon, the URL handler and `restart`
+# flavors - never linkport-cli). They all share %APPDATA%\linkport and so
+# the portal port: any one of them must go before the new daemon starts.
 function Get-LinkportProcesses {
-    param([string]$ExePath)
     try {
-        return @(Get-Process -Name 'linkport' -ErrorAction SilentlyContinue |
-            Where-Object { $_.Path -eq $ExePath })
+        return @(Get-Process -Name 'linkport' -ErrorAction SilentlyContinue)
     }
     catch { return @() }
 }
@@ -110,14 +112,14 @@ function Invoke-LinkportCli {
     return [pscustomobject]@{ Code = $proc.ExitCode; Output = $text }
 }
 
-# Stop the daemon(s) running from ExePath so the file can be replaced
-# (Windows locks a running executable). Graceful first - `linkport-cli
-# stop` is the tray's Quit over HTTP, which removes the tray icon cleanly -
-# then force-terminate after a short grace period. Releases before 0.5.0
-# have no `stop`; the force path covers them.
+# Stop the running daemon(s) so the file can be replaced (Windows locks a
+# running executable). Graceful first - `linkport-cli stop` is the tray's
+# Quit over HTTP, which removes the tray icon cleanly - then
+# force-terminate after a short grace period. Releases before 0.5.0 have no
+# `stop`; the force path covers them.
 function Stop-LinkportDaemon {
-    param([string]$ExePath, [string]$CliPath)
-    $procs = @(Get-LinkportProcesses -ExePath $ExePath)
+    param([string]$CliPath)
+    $procs = @(Get-LinkportProcesses)
     if ($procs.Count -eq 0) { return }
 
     Write-Note "stopping the running Linkport ($($procs.Count) process(es))"
@@ -125,54 +127,22 @@ function Stop-LinkportDaemon {
         try { $null = Invoke-LinkportCli -CliPath $CliPath -CliArgs @('stop') } catch { }
     }
     $deadline = (Get-Date).AddSeconds(5)
-    while ((Get-Date) -lt $deadline -and @(Get-LinkportProcesses -ExePath $ExePath).Count -gt 0) {
+    while ((Get-Date) -lt $deadline -and @(Get-LinkportProcesses).Count -gt 0) {
         Start-Sleep -Milliseconds 250
     }
-    $left = @(Get-LinkportProcesses -ExePath $ExePath)
+    $left = @(Get-LinkportProcesses)
     if ($left.Count -gt 0) {
         try { $left | Stop-Process -Force -ErrorAction SilentlyContinue } catch { }
     }
     Start-Sleep -Milliseconds 300 # let the OS release the file handles
 }
 
-# The executable of a registry command template such as
-# "C:\Tools\Linkport\linkport.exe" "%1" (quoted, or the first token).
-function Get-CommandExe {
-    param([string]$Command)
-    if (-not $Command) { return $null }
-    if ($Command -match '^"([^"]+)"') { return $Matches[1] }
-    return ($Command -split '\s+')[0]
-}
-
-# Install dirs of other Linkport copies Windows still knows about: the URL
-# handler, the StartMenuInternet client and the sign-in auto-start entry.
-# A manual install in C:\Tools\Linkport shows up here when the user moves
-# to the one-liner install.
-function Get-PreviousInstallDirs {
-    param([string]$ExcludeDir)
-    $commands = @()
-    foreach ($key in @('HKCU:\Software\Classes\Linkport.URL\shell\open\command',
-                       'HKCU:\Software\Clients\StartMenuInternet\Linkport\shell\open\command')) {
-        try { $commands += (Get-ItemProperty -Path $key -ErrorAction SilentlyContinue).'(default)' } catch { }
-    }
-    try { $commands += (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'Linkport' -ErrorAction SilentlyContinue).Linkport } catch { }
-
-    $dirs = @()
-    foreach ($command in $commands) {
-        $exe = Get-CommandExe $command
-        if ($exe -and (Test-Path -LiteralPath $exe)) { $dirs += (Split-Path -Parent $exe) }
-    }
-    $exclude = [IO.Path]::GetFullPath($ExcludeDir).TrimEnd('\')
-    foreach ($dir in ($dirs | Select-Object -Unique)) {
-        $full = [IO.Path]::GetFullPath($dir).TrimEnd('\')
-        if (-not [string]::Equals($full, $exclude, [StringComparison]::OrdinalIgnoreCase)) { $full }
-    }
-}
-
-# Rewrite the registered handler paths in place after the install moved.
-# Only existing values are overwritten - no key is created or deleted - so
-# the user's default-browser choice (hashed over the ProgId name, not its
-# command) survives, exactly like the daemon's own self-heal.
+# Point the existing registration at this install by rewriting its values
+# in place. Only existing values are overwritten - no key is created or
+# deleted - so the user's default-browser choice (hashed over the ProgId
+# name, not its command) survives, exactly like the daemon's own self-heal.
+# Needed after a manual copy elsewhere was removed, and harmless on
+# upgrades in place.
 function Repair-Registration {
     param([string]$TargetExe)
     $handler = "`"$TargetExe`" `"%1`""
@@ -224,34 +194,6 @@ function Save-ReleaseZip {
     return $archive
 }
 
-# Remove a previous install directory - only when it holds nothing but
-# Linkport's own files, so a shared folder like C:\Tools is never touched.
-function Remove-PreviousInstall {
-    param([string]$Dir, [string]$KeepDir)
-    # Never the install we just wrote (8.3/long-form and case differences
-    # must not matter here).
-    foreach ($candidate in @($Dir, $KeepDir)) {
-        if (-not (Test-Path -LiteralPath $candidate)) { return }
-    }
-    $dirItem = Get-Item -LiteralPath $Dir
-    $keepItem = Get-Item -LiteralPath $KeepDir
-    if ([string]::Equals($dirItem.FullName, $keepItem.FullName, [StringComparison]::OrdinalIgnoreCase)) { return }
-    if ([string]::Equals([IO.Path]::GetFullPath($Dir).TrimEnd('\'), [IO.Path]::GetFullPath($KeepDir).TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) { return }
-
-    $known = @('linkport.exe', 'linkport-cli.exe', 'QUICK-START.txt', 'LICENSE')
-    $items = @(Get-ChildItem -LiteralPath $Dir -Force)
-    $foreign = @($items | Where-Object { $_.PSIsContainer -or $known -notcontains $_.Name })
-    if ($foreign.Count -gt 0) {
-        Write-Note "previous install left at $Dir (it holds other files) - delete it at your leisure"
-        return
-    }
-    try {
-        Remove-Item -LiteralPath $Dir -Recurse -Force
-        Write-Note "removed the previous install at $Dir"
-    }
-    catch { Write-Note "could not remove the previous install at $Dir - delete it at your leisure" }
-}
-
 # ------------------------------------------------------------ source -------
 $tempDirs = @()
 if ($DownloadUrl -ne '') {
@@ -290,7 +232,6 @@ Write-Step "Using build: $BinDir"
 
 # ----------------------------------------------------------- install -------
 $registered = Test-Path 'HKCU:\Software\Clients\StartMenuInternet\Linkport\Capabilities\URLAssociations'
-$previousDirs = @(Get-PreviousInstallDirs -ExcludeDir $InstallDir)
 $isUpgrade = Test-Path -LiteralPath (Join-Path $InstallDir 'linkport.exe')
 
 if ($isUpgrade) { Write-Step "Upgrading $InstallDir" }
@@ -300,11 +241,7 @@ $InstallDir = (Resolve-Path -LiteralPath $InstallDir).Path
 $targetExe = Join-Path $InstallDir 'linkport.exe'
 $targetCli = Join-Path $InstallDir 'linkport-cli.exe'
 
-# Daemons elsewhere first (they own the portal port), then this install's.
-foreach ($dir in $previousDirs) {
-    Stop-LinkportDaemon -ExePath (Join-Path $dir 'linkport.exe') -CliPath (Join-Path $dir 'linkport-cli.exe')
-}
-Stop-LinkportDaemon -ExePath $targetExe -CliPath $targetCli
+Stop-LinkportDaemon -CliPath $targetCli
 
 Copy-Item -LiteralPath (Join-Path $BinDir 'linkport.exe') -Destination $targetExe -Force
 Copy-Item -LiteralPath (Join-Path $BinDir 'linkport-cli.exe') -Destination $targetCli -Force
@@ -350,7 +287,7 @@ if (-not $NoRegister -and -not $registered) {
     if ($r.Code -ne 0) { throw "linkport-cli register failed with exit code $($r.Code)." }
 }
 elseif ($registered) {
-    Write-Step 'Updating the registered handler path in place'
+    Write-Step 'Pointing the existing registration at this install'
     Repair-Registration -TargetExe $targetExe
 }
 
@@ -365,11 +302,6 @@ if ($runValue) {
         Write-Step 'Pointing the sign-in auto-start entry at this install'
         Set-ItemProperty -Path $runKey -Name 'Linkport' -Value $wanted
     }
-}
-
-# ------------------------------------------------------- previous copy -----
-foreach ($dir in $previousDirs) {
-    Remove-PreviousInstall -Dir $dir -KeepDir $InstallDir
 }
 
 # Best-effort version confirmation (never fails the install).
@@ -399,6 +331,9 @@ Write-Host ''
 if ($versionText) { Write-Host "Linkport $versionText installed." -ForegroundColor Green }
 elseif ($isUpgrade) { Write-Host 'Linkport upgraded.' -ForegroundColor Green }
 else { Write-Host 'Linkport installed.' -ForegroundColor Green }
+if (Test-Path (Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'linkport\config.toml')) {
+    Write-Note 'rules, history and the portal token in %APPDATA%\linkport are untouched'
+}
 
 if (-not $registered -and -not $NoRegister) {
     Write-Host 'Next: Windows Settings > Apps > Default apps > Linkport > set the default for HTTP and HTTPS.'

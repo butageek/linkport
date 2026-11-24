@@ -13,8 +13,10 @@ EASIEST: THE ONE-LINER
 
    The same command upgrades an existing install later - and so does the
    tray menu's "Install update" item once Linkport finds a newer release.
-   Already running a copy from another folder (e.g. C:\Tools\Linkport)?
-   The installer moves it over. Then continue with step 2.
+   Switching from a manual copy elsewhere (e.g. C:\Tools\Linkport)? Quit
+   its tray daemon and delete the folder first; your rules, history and
+   portal token (%APPDATA%\linkport) carry over, and the registration is
+   repointed for you. Then continue with step 2.
 
 MANUAL: FROM THIS ZIP
 

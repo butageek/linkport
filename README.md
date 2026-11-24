@@ -44,10 +44,11 @@ starts, and the tray menu then gets an **Install update** item (Settings
 has the same button) that runs this installer for you. Nothing is ever
 installed without your click.
 
-Already running a copy from somewhere else (e.g. `C:\Tools\Linkport`)?
-The installer moves it over: the registration and the sign-in auto-start
-entry are repointed, and the old folder is removed once it holds nothing
-but Linkport's own files.
+Switching from a manual copy elsewhere (e.g. `C:\Tools\Linkport`)? Quit
+its tray daemon, delete the folder, run the one-liner: your rules, history
+and portal token live in `%APPDATA%\linkport` and carry over untouched,
+and the installer points the existing registration and sign-in auto-start
+entry at the new location (your default-browser choice survives).
 
 Prefer a manual install from the [releases page](https://github.com/butageek/linkport/releases)?
 Grab `linkport-<version>-win64.zip`, extract it somewhere permanent

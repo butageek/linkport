@@ -34,11 +34,12 @@ elseif (-not (Test-Path -LiteralPath $InstallDir)) {
 function Write-Step([string]$msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 function Write-Note([string]$msg) { Write-Host "    $msg" -ForegroundColor DarkGray }
 
+# Every process named linkport (the daemon, the URL handler and `restart`
+# flavors - never linkport-cli, so the cli running `stop` never kills
+# itself).
 function Get-LinkportProcesses {
-    param([string]$ExePath)
     try {
-        return @(Get-Process -Name 'linkport' -ErrorAction SilentlyContinue |
-            Where-Object { $_.Path -eq $ExePath })
+        return @(Get-Process -Name 'linkport' -ErrorAction SilentlyContinue)
     }
     catch { return @() }
 }
@@ -60,8 +61,8 @@ function Invoke-LinkportCli {
 # Graceful first (`linkport-cli stop` = the tray's Quit, clean tray-icon
 # removal), force-terminate after a short grace period.
 function Stop-LinkportDaemon {
-    param([string]$ExePath, [string]$CliPath)
-    $procs = @(Get-LinkportProcesses -ExePath $ExePath)
+    param([string]$CliPath)
+    $procs = @(Get-LinkportProcesses)
     if ($procs.Count -eq 0) { return }
 
     Write-Note "stopping the running Linkport ($($procs.Count) process(es))"
@@ -69,10 +70,10 @@ function Stop-LinkportDaemon {
         try { $null = Invoke-LinkportCli -CliPath $CliPath -CliArgs @('stop') } catch { }
     }
     $deadline = (Get-Date).AddSeconds(5)
-    while ((Get-Date) -lt $deadline -and @(Get-LinkportProcesses -ExePath $ExePath).Count -gt 0) {
+    while ((Get-Date) -lt $deadline -and @(Get-LinkportProcesses).Count -gt 0) {
         Start-Sleep -Milliseconds 250
     }
-    $left = @(Get-LinkportProcesses -ExePath $ExePath)
+    $left = @(Get-LinkportProcesses)
     if ($left.Count -gt 0) {
         try { $left | Stop-Process -Force -ErrorAction SilentlyContinue } catch { }
     }
@@ -81,7 +82,7 @@ function Stop-LinkportDaemon {
 
 $targetExe = Join-Path $InstallDir 'linkport.exe'
 $targetCli = Join-Path $InstallDir 'linkport-cli.exe'
-Stop-LinkportDaemon -ExePath $targetExe -CliPath $targetCli
+Stop-LinkportDaemon -CliPath $targetCli
 
 # ------------------------------------------------------ unregister --------
 if (Test-Path -LiteralPath $targetCli) {
