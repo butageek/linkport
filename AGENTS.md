@@ -93,11 +93,13 @@ version-named folder, so an upgrade-by-extract leaves the registered
 handler (and the Run key) pointing at the deleted old copy — links then
 fail with "Application not found" and NO events are logged (the handler
 exe never runs; both symptoms share this one cause). Every daemon start
-(`start_daemon`, before the port probe) calls
-`portal::heal_windows_registration()`: it rewrites the handler command
-values in place (no key create/delete, so `UserChoice` survives — the
-Chrome-update model) and repairs a stale Run value. `api::status`
-exposes `handler_ok` so the portal can show the real state.
+calls `portal::heal_windows_registration()` — from `serve()` on the
+daemon-start path, from `start_daemon()` when another daemon already owns
+the port and this one only surfaces the portal. It rewrites the handler
+command values in place (no key create/delete, so `UserChoice` survives —
+the Chrome-update model) and repairs a stale Run value;
+`tools/install.ps1` performs the same in-place repair at install time.
+`api::status` exposes `handler_ok` so the portal can show the real state.
 
 ## In-app updates & installer
 

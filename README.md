@@ -82,7 +82,9 @@ Two binaries ship from one crate and must sit side by side:
   no arguments (double-click / Start menu — starts the daemon, or opens
   the portal if one is already running).
 - **`linkport-cli.exe`** — the terminal tool: `test` (dry-run a URL with
-  the full decision trace), `register`/`unregister`, `browsers`, `init`,
+  the full decision trace), `open` (route and open from a terminal),
+  `register`/`unregister`, `browsers`, `stop` (quit the daemon gracefully
+  — what the installer runs before replacing the exes), `init`,
   `portal-url`, and `serve` for dev-mode running with console logs.
 
 ### Features
