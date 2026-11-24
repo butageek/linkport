@@ -2,6 +2,9 @@
 # scripts/package.sh and publishes it as a GitHub Release with notes
 # generated from the commits since the previous tag (this repo pushes
 # directly to main, so GitHub's PR-based --generate-notes comes up empty).
+# End users install with the one-liner in the README; tools/install.ps1
+# fetches linkport-<version>-win64.zip from the latest release (and the
+# daemon's in-place update runs that same installer).
 
 name: Release
 
@@ -52,16 +55,20 @@ jobs:
             } > release-notes.md
           fi
 
-      - name: Create GitHub Release with the zip attached
+      - name: Create (or update) the GitHub Release with the zip attached
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Idempotent: re-pushing/moving a tag updates the existing release
+          # instead of failing on the name conflict.
+          NOTES_ARGS=(--title "Linkport ${GITHUB_REF_NAME}")
           if [ -s release-notes.md ]; then
-            gh release create "${GITHUB_REF_NAME}" dist/*.zip \
-              --title "Linkport ${GITHUB_REF_NAME}" \
-              --notes-file release-notes.md
+            NOTES_ARGS+=(--notes-file release-notes.md)
           else
-            gh release create "${GITHUB_REF_NAME}" dist/*.zip \
-              --title "Linkport ${GITHUB_REF_NAME}" \
-              --generate-notes
+            NOTES_ARGS+=(--generate-notes)
+          fi
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" dist/*.zip --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" dist/*.zip "${NOTES_ARGS[@]}"
           fi
