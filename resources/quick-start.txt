@@ -5,11 +5,15 @@ Linkport routes every link you click to the right browser, based on rules
 you define. Setup takes about 3 minutes. No admin rights needed.
 
 EASIEST: THE ONE-LINER
-   Open PowerShell and paste this - it installs Linkport to
+   In PowerShell 7 (pwsh), paste - it installs Linkport to
    %LOCALAPPDATA%\Programs\Linkport, registers it, starts it and opens
    the portal:
 
-   powershell -c "irm https://raw.githubusercontent.com/butageek/linkport/main/tools/install.ps1 -OutFile $env:TEMP\linkport-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\linkport-install.ps1"
+   irm https://raw.githubusercontent.com/butageek/linkport/main/tools/install.ps1 | iex
+
+   (On Windows PowerShell 5.1 - the built-in powershell.exe - "iex" cannot
+   run a script with parameters; download it first instead:
+   powershell -c "irm https://raw.githubusercontent.com/butageek/linkport/main/tools/install.ps1 -OutFile $env:TEMP\linkport-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\linkport-install.ps1")
 
    The same command upgrades an existing install later - and so does the
    tray menu's "Install update" item once Linkport finds a newer release.
@@ -80,10 +84,12 @@ TROUBLESHOOTING
 - The portal listens on 127.0.0.1 only, port 14200 by default (port is in
   %APPDATA%\linkport\config.toml).
 
-UNINSTALL
-   powershell -c "irm https://raw.githubusercontent.com/butageek/linkport/main/tools/uninstall.ps1 -OutFile $env:TEMP\linkport-uninstall.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\linkport-uninstall.ps1"
-   Rules and history are kept; run the script with -PurgeData to delete
-   them too.
+UNINSTALL (PowerShell 7)
+   irm https://raw.githubusercontent.com/butageek/linkport/main/tools/uninstall.ps1 | iex
+   Rules and history are kept. To delete them too, save the script and run
+   it as a file with -PurgeData (the file form is also the one to use on
+   Windows PowerShell 5.1):
+   powershell -c "irm https://raw.githubusercontent.com/butageek/linkport/main/tools/uninstall.ps1 -OutFile $env:TEMP\linkport-uninstall.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\linkport-uninstall.ps1 -PurgeData"
 
 Linkport is MIT-licensed. See LICENSE in this folder.
 

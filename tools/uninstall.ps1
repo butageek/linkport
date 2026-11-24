@@ -3,6 +3,10 @@
 # Menu shortcut, the user PATH entry and the install dir. Your rules and
 # history (%APPDATA%\linkport) stay unless you pass -PurgeData.
 #
+# In PowerShell 7:
+#   irm https://raw.githubusercontent.com/butageek/linkport/main/tools/uninstall.ps1 | iex
+# Windows PowerShell 5.1 cannot iex a script with a param block (and -PurgeData
+# needs the file form anyway):
 #   powershell -c "irm https://raw.githubusercontent.com/butageek/linkport/main/tools/uninstall.ps1 -OutFile $env:TEMP\linkport-uninstall.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\linkport-uninstall.ps1"
 #
 #   powershell -ExecutionPolicy Bypass -File tools\uninstall.ps1 -InstallDir D:\Apps\Linkport -PurgeData

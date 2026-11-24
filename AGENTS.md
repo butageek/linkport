@@ -106,7 +106,8 @@ the Chrome-update model) and repairs a stale Run value;
 Pattern borrowed from pound (same maintainer): **the official installer is
 the upgrader**, and the app's "update" action just runs it.
 
-- `tools/install.ps1` (README one-liner, download-then-run-as-file) installs
+- `tools/install.ps1` (README one-liner `irm … | iex` for PowerShell 7, the
+  5.1 file form in a collapsed block below it) installs
   to `%LOCALAPPDATA%\Programs\Linkport`: stops every running daemon,
   copies both exes (+ any DLLs, QUICK-START, LICENSE), Start Menu shortcut,
   user PATH (`-NoPath` to skip), registers **only when not registered
@@ -137,9 +138,11 @@ the upgrader**, and the app's "update" action just runs it.
   of waiting out its 3-minute deadline.
 - `is_newer` is strict (exactly three numeric parts, prerelease suffixes →
   not newer): a bad tag must never be *installed*.
-- GOTCHA (PS 5.1): `irm … | iex` cannot run a script with a `param()` block
-  — hence the download-then-`-File` one-liner, and the daemon's
-  `installer_script()` doing the same.
+- GOTCHA (PS 5.1): `irm … | iex` cannot run a script with a `param()`
+  block, so the README's short form needs PowerShell 7 and carries the
+  5.1 file form as a fallback. The daemon's `installer_script()` keeps the
+  file form regardless: it spawns `powershell.exe` (5.1 — the one shell
+  every Windows machine has), never `pwsh`.
 - GOTCHA (PowerShell): the call operator does NOT wait for GUI-subsystem
   binaries and leaves `$LASTEXITCODE` unset; and with
   `$ErrorActionPreference = 'Stop'` any stderr line from a native command

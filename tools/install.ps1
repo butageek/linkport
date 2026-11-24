@@ -1,8 +1,10 @@
 # Linkport installer (per-user, no admin rights required).
 #
-# Easiest install or upgrade - open PowerShell and paste (downloads the
-# latest release from GitHub and runs this script as a file; piping it into
-# iex breaks on Windows PowerShell 5.1 because of the param block below):
+# Easiest install or upgrade, in PowerShell 7 (downloads the latest
+# release from GitHub):
+#   irm https://raw.githubusercontent.com/butageek/linkport/main/tools/install.ps1 | iex
+# Windows PowerShell 5.1 cannot iex a script with a param block - there,
+# download it and run it as a file:
 #   powershell -c "irm https://raw.githubusercontent.com/butageek/linkport/main/tools/install.ps1 -OutFile $env:TEMP\linkport-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\linkport-install.ps1"
 #
 # More control:

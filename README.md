@@ -18,20 +18,16 @@ getting in your way.
 
 ## Install (Windows, no admin rights)
 
-Open PowerShell and paste — it downloads the latest release and installs
-it to `%LOCALAPPDATA%\Programs\Linkport` (the per-user location modern
-Windows apps use: no admin rights, no UAC prompt on upgrades, program files
-kept apart from your data in `%APPDATA%\linkport`), adds a Start Menu
+Open PowerShell 7 (`pwsh`) and paste — it downloads the latest release and
+installs it to `%LOCALAPPDATA%\Programs\Linkport` (the per-user location
+modern Windows apps use: no admin rights, no UAC prompt on upgrades, program
+files kept apart from your data in `%APPDATA%\linkport`), adds a Start Menu
 shortcut and your user `PATH`, registers Linkport as a browser candidate
 and starts it:
 
 ```powershell
-powershell -c "irm https://raw.githubusercontent.com/butageek/linkport/main/tools/install.ps1 -OutFile $env:TEMP\linkport-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\linkport-install.ps1"
+irm https://raw.githubusercontent.com/butageek/linkport/main/tools/install.ps1 | iex
 ```
-
-(Run as a file on purpose — piping a script into `iex` breaks on Windows
-PowerShell 5.1 when it declares parameters. Under **PowerShell 7** the short
-form works too: `irm https://raw.githubusercontent.com/butageek/linkport/main/tools/install.ps1 | iex`.)
 
 The portal opens in your browser on the first run. Then make Linkport your
 default browser — one click in Windows Settings, see
@@ -55,12 +51,30 @@ Grab `linkport-<version>-win64.zip`, extract it somewhere permanent
 (`%LOCALAPPDATA%\Programs\Linkport` is a good default) and follow the
 bundled `QUICK-START.txt`.
 
-Uninstall (keeps your rules and history; add `-PurgeData` to remove those
-too):
+Uninstall (keeps your rules and history — to delete those too, run the
+script as a file with `-PurgeData`, see below):
+
+```powershell
+irm https://raw.githubusercontent.com/butageek/linkport/main/tools/uninstall.ps1 | iex
+```
+
+<details>
+<summary>Still on Windows PowerShell 5.1 (the built-in <code>powershell.exe</code>)?</summary>
+
+`iex` cannot run a script that declares parameters there, so download it
+and run it as a file instead. Install:
+
+```powershell
+powershell -c "irm https://raw.githubusercontent.com/butageek/linkport/main/tools/install.ps1 -OutFile $env:TEMP\linkport-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\linkport-install.ps1"
+```
+
+Uninstall (add `-PurgeData` to the last part to also delete `%APPDATA%\linkport`):
 
 ```powershell
 powershell -c "irm https://raw.githubusercontent.com/butageek/linkport/main/tools/uninstall.ps1 -OutFile $env:TEMP\linkport-uninstall.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\linkport-uninstall.ps1"
 ```
+
+</details>
 
 ## How it works
 
