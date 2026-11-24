@@ -12,20 +12,30 @@ use linkport_core::{config, launcher};
 pub fn open_url(url: &str) -> Result<()> {
     let cfg = paths::load_or_default();
 
-    let (outcome, host, resolved, result) = if paths::is_paused() {
+    // (outcome, host, opened, origin_url, result): `opened` is what was
+    // launched and what the event log records; `origin_url` is the clicked
+    // link when redirect resolution moved it to a different destination.
+    let (outcome, host, opened, origin_url, result) = if paths::is_paused() {
         // Routing paused: send everything to the configured default browser.
+        // The link still gets the engine's normalization (scheme-less input
+        // assumes https://, host extracted for the log); the engine's
+        // outcome itself is ignored.
+        let Decision {
+            url: opened, host, ..
+        } = engine::evaluate(&cfg, url);
         let target = cfg
             .default_browser
             .clone()
             .filter(|t| cfg.browsers.contains_key(t));
         match target {
             Some(t) => {
-                let result = launch_browser(&cfg, &t, url, false);
-                (Outcome::Default { target: t }, None, None, result)
+                let result = launch_browser(&cfg, &t, &opened, false);
+                (Outcome::Default { target: t }, host, opened, None, result)
             }
             None => (
                 Outcome::NoMatch,
-                None,
+                host,
+                opened,
                 None,
                 Err(anyhow::anyhow!(
                     "routing is paused but no default browser is configured"
@@ -36,12 +46,15 @@ pub fn open_url(url: &str) -> Result<()> {
         let decision = decide(&cfg, url);
         // Launch the engine's canonical URL (scheme-less input gets the
         // https:// it assumed) or the redirect-resolved destination.
-        let final_url = decision.resolved_url.as_deref().unwrap_or(&decision.url);
+        let opened = decision
+            .resolved_url
+            .clone()
+            .unwrap_or_else(|| decision.url.clone());
         let result = match &decision.outcome {
             Outcome::RuleMatched {
                 target, incognito, ..
-            } => launch_browser(&cfg, target, final_url, *incognito),
-            Outcome::Default { target } => launch_browser(&cfg, target, final_url, false),
+            } => launch_browser(&cfg, target, &opened, *incognito),
+            Outcome::Default { target } => launch_browser(&cfg, target, &opened, false),
             // Blocked URLs are swallowed without opening anything.
             Outcome::Blocked { .. } => Ok(()),
             // decide() always resolves this to a terminal outcome; defensive.
@@ -52,27 +65,17 @@ pub fn open_url(url: &str) -> Result<()> {
                 "no rule matched and no default browser is configured"
             )),
         };
-        (
-            decision.outcome,
-            decision.host,
-            decision.resolved_url,
-            result,
-        )
+        let origin_url = decision.resolved_url.as_ref().map(|_| url.to_string());
+        (decision.outcome, decision.host, opened, origin_url, result)
     };
 
     let error = result.as_ref().err().map(|e| e.to_string());
-    // Event contract: url = what actually opened (the final destination),
-    // origin_url = the clicked link when redirect resolution moved it.
-    let (logged_url, origin_url) = match resolved {
-        Some(final_url) => (final_url, Some(url.to_string())),
-        None => (url.to_string(), None),
-    };
     let _ = event::append(
         &paths::events_path(),
         &event::Event {
             error,
             origin_url,
-            ..event::Event::new(logged_url, host, outcome)
+            ..event::Event::new(opened, host, outcome)
         },
     );
 

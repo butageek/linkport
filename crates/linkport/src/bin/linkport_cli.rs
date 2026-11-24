@@ -34,11 +34,7 @@ enum Commands {
         open: bool,
     },
     /// Register Linkport as a default-browser candidate (Windows).
-    Register {
-        /// Path of the executable to register (default: this binary).
-        #[arg(long)]
-        exe: Option<std::path::PathBuf>,
-    },
+    Register,
     /// Remove Linkport's default-browser registration (Windows).
     Unregister,
     /// List configured browsers and browsers discovered on this system.
@@ -63,12 +59,9 @@ fn main() -> Result<()> {
         }
         Commands::Open { url } => linkport::open::open_url(&url)?,
         Commands::Serve { port, open } => linkport::portal::serve(port, open)?,
-        Commands::Register { exe } => {
-            let exe = exe
-                .or_else(|| std::env::current_exe().ok())
-                .context("could not determine executable path")?;
+        Commands::Register => {
             let handler = linkport::default_handler_command();
-            linkport_win::register(&exe, &handler).map_err(anyhow::Error::msg)?;
+            linkport_win::register(&handler).map_err(anyhow::Error::msg)?;
             println!("Registered Linkport as a browser candidate.");
             println!("Handler: {handler}");
             println!("Now open Windows Settings > Apps > Default apps > Linkport and");

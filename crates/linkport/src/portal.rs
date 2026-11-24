@@ -4,7 +4,7 @@
 use crate::{api, open, paths};
 use anyhow::{Context, Result};
 use axum::extract::{Request, State};
-use axum::http::{header, HeaderValue, StatusCode, Uri};
+use axum::http::{header, StatusCode, Uri};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -68,16 +68,6 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
         .context("failed to build tokio runtime")?;
 
     runtime.block_on(async move {
-        // Allow the Vite dev server (localhost:3000) to call the API during
-        // development. The production SPA is same-origin and unaffected.
-        let cors = tower_http::cors::CorsLayer::new()
-            .allow_origin([
-                "http://localhost:3000".parse::<HeaderValue>().unwrap(),
-                "http://127.0.0.1:3000".parse::<HeaderValue>().unwrap(),
-            ])
-            .allow_methods(tower_http::cors::Any)
-            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
-
         let public = Router::new().route("/api/ping", get(api::ping));
 
         let protected = Router::new()
@@ -92,7 +82,23 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
             .with_state(state.clone())
             .route_layer(middleware::from_fn_with_state(state.clone(), auth));
 
-        let app = public.merge(protected).fallback(static_handler).layer(cors);
+        let app = public.merge(protected).fallback(static_handler);
+        // Dev only: let the Vite dev server (localhost:3000) call the API
+        // (`cargo run -- serve` is a debug build). The production SPA is
+        // same-origin, so release builds ship no CORS layer at all.
+        #[cfg(debug_assertions)]
+        let app = {
+            use axum::http::HeaderValue;
+            app.layer(
+                tower_http::cors::CorsLayer::new()
+                    .allow_origin([
+                        "http://localhost:3000".parse::<HeaderValue>().unwrap(),
+                        "http://127.0.0.1:3000".parse::<HeaderValue>().unwrap(),
+                    ])
+                    .allow_methods(tower_http::cors::Any)
+                    .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]),
+            )
+        };
 
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
         let listener = tokio::net::TcpListener::bind(addr)

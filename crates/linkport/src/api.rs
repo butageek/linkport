@@ -128,15 +128,12 @@ pub async fn clear_events() -> Json<Value> {
 
 pub async fn register() -> Json<Value> {
     let handler = crate::default_handler_command();
-    let result = match std::env::current_exe() {
-        Ok(exe) => linkport_win::register(&exe, &handler).map(|()| {
-            format!(
-                "Registered with handler: {handler}. Now set Linkport as the \
-                 default for HTTP/HTTPS in Windows Settings > Apps > Default apps > Linkport."
-            )
-        }),
-        Err(e) => Err(e.to_string()),
-    };
+    let result = linkport_win::register(&handler).map(|()| {
+        format!(
+            "Registered with handler: {handler}. Now set Linkport as the \
+             default for HTTP/HTTPS in Windows Settings > Apps > Default apps > Linkport."
+        )
+    });
     match result {
         Ok(detail) => Json(json!({ "ok": true, "detail": detail })),
         Err(detail) => Json(json!({ "ok": false, "detail": detail })),

@@ -19,7 +19,7 @@ const APP_REG_PATH: &str = r"Software\Clients\StartMenuInternet\Linkport";
 const PROG_ID: &str = "Linkport.URL";
 const OPEN_COMMAND_PATH: &str = r"Software\Classes\Linkport.URL\shell\open\command";
 
-pub fn register(_exe: &Path, open_command: &str) -> Result<(), String> {
+pub fn register(open_command: &str) -> Result<(), String> {
     let icon = icon_source(open_command);
     let run = || -> std::io::Result<()> {
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
