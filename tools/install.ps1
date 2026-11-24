@@ -25,14 +25,14 @@
 #      dir to the user PATH (so `linkport-cli` works from any terminal)
 #   3. Registers Linkport as a browser candidate - only when it is not
 #      registered yet; otherwise the existing registration is pointed at
-#      this install by rewriting its values in place (re-registering can
-#      reset Windows' hashed default-browser choice)
+#      this install by rewriting its values in place, which keeps the
+#      Windows default-browser choice (re-registering can reset it)
 #   4. Points the sign-in auto-start entry at this install when one exists
 #   5. Starts the daemon (the portal opens by itself on the very first run)
 #
 # Settings never live in the install dir: rules, history and the portal
-# token are in %APPDATA%\linkport and are not touched, and the Windows
-# default-browser choice survives the in-place repair in step 3.
+# token are in %APPDATA%\linkport and are not touched - moving or
+# deleting the folder never loses them.
 #Requires -Version 5.1
 [CmdletBinding()]
 param(
@@ -331,8 +331,9 @@ Write-Host ''
 if ($versionText) { Write-Host "Linkport $versionText installed." -ForegroundColor Green }
 elseif ($isUpgrade) { Write-Host 'Linkport upgraded.' -ForegroundColor Green }
 else { Write-Host 'Linkport installed.' -ForegroundColor Green }
-if (Test-Path (Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'linkport\config.toml')) {
-    Write-Note 'rules, history and the portal token in %APPDATA%\linkport are untouched'
+$dataDir = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'linkport'
+if (Test-Path -LiteralPath (Join-Path $dataDir 'config.toml')) {
+    Write-Note "rules, history and the portal token in $dataDir are untouched"
 }
 
 if (-not $registered -and -not $NoRegister) {

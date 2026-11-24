@@ -69,11 +69,11 @@ gitignored `AGENTS.local.md` next to this file.
 `<install>` below means the directory holding the two exes —
 `%LOCALAPPDATA%\Programs\Linkport` for the one-liner install (per-user,
 no admin, no UAC on upgrade; the location VS Code's user installer and
-most modern per-user Win32 apps use). A manual copy elsewhere
-(`C:\Tools\Linkport`) is migrated by quitting its daemon, deleting it and
-running `tools/install.ps1`, which repoints the registration in place.
-The install path is registered with Windows — moving it requires
-re-registering, which the daemon's self-heal (below) also does in place.
+most modern per-user Win32 apps use). The install path is registered with
+Windows; once it moves (a manual copy in `C:\Tools\Linkport` is deleted and
+the installer run), the registration is repointed *in place* — never
+re-created — by `tools/install.ps1` and by the daemon's self-heal (below),
+so the user's default-browser choice survives.
 
 | Purpose | Key / mechanism | Value shape |
 |---|---|---|
@@ -111,9 +111,9 @@ the upgrader**, and the app's "update" action just runs it.
   yet** (the handler path is repaired in place otherwise — re-registering
   can reset the hashed `UserChoice`), repoints the Run auto-start value if
   one exists, then starts the daemon (`-NoLaunch` to skip). Settings never
-  live in the install dir (`%APPDATA%\linkport` is untouched), which is
-  all the migration a manual copy elsewhere needs: quit it, delete it, run
-  the installer. `-BinDir` / `-DownloadUrl` / `-InstallDir` / `-Repo` for
+  live in the install dir (`%APPDATA%\linkport` is untouched), so moving
+  off a manual copy elsewhere is just: quit it, delete it, run the
+  installer. `-BinDir` / `-DownloadUrl` / `-InstallDir` / `-Repo` for
   local builds and tests. `tools/uninstall.ps1` reverses it and keeps
   `%APPDATA%\linkport` unless `-PurgeData`.
 - Startup check (config-gated) → tray item **Install update v…** /
