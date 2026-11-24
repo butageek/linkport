@@ -45,6 +45,7 @@ export default function SettingsPage() {
   const [status, setStatus] = useState<Status | null>(null);
   const [regDetail, setRegDetail] = useState<string | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [installing, setInstalling] = useState(false);
   // Port edits stay local until blur: saving per keystroke would persist
   // half-typed values. Committed when valid, reverted when not.
   const [portDraft, setPortDraft] = useState<string | null>(null);
@@ -100,6 +101,59 @@ export default function SettingsPage() {
     } finally {
       setCheckingUpdate(false);
     }
+  }
+
+  // In-place upgrade: the installer stops the daemon and relaunches it, so
+  // this page loses its backend for a few seconds. Poll the public ping
+  // until a daemon of a different version answers, then reload; a daemon
+  // of the same version that is no longer "installing" means the installer
+  // gave up before the replace step.
+  async function installUpdate() {
+    setInstalling(true);
+    setError(null);
+    setUpdateResult({ text: "Starting the installer…", tone: "info" });
+    try {
+      await api.installUpdate();
+    } catch (e) {
+      setInstalling(false);
+      setError(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    const was = status?.version;
+    setUpdateResult({
+      text: `Installing v${status?.update?.latest} — Linkport stops and comes back on this address in a moment.`,
+      tone: "info",
+    });
+    const deadline = Date.now() + 3 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 3000));
+      try {
+        const ping = await api.ping();
+        if (ping.version !== was) {
+          setUpdateResult({ text: `Updated — Linkport ${ping.version} is running.`, tone: "ok" });
+          setInstalling(false);
+          load();
+          return;
+        }
+        const s = await api.status();
+        if (!s.installing) {
+          setUpdateResult({
+            text: "The installer did not complete — see update.log in the config folder.",
+            tone: "error",
+          });
+          setInstalling(false);
+          load();
+          return;
+        }
+      } catch {
+        /* daemon down (being replaced): keep waiting */
+      }
+    }
+    setUpdateResult({
+      text: "Still waiting for Linkport to come back — check update.log in the config folder.",
+      tone: "error",
+    });
+    setInstalling(false);
   }
 
   // The select shows a valid choice even when default_browser dangles
@@ -252,7 +306,7 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between">
               <span>Latest release</span>
               <div className="flex items-center gap-2">
-                {/* h-8 matches the Check-now button height so the pair reads as one control row */}
+                {/* h-8 matches the button heights so the pair reads as one control row */}
                 {!status?.update ? (
                   <Badge variant="outline" className="h-8">
                     not checked yet
@@ -262,6 +316,7 @@ export default function SettingsPage() {
                     href={status.update.url}
                     target="_blank"
                     rel="noreferrer"
+                    title="Release notes on GitHub"
                     className={buttonVariants({ variant: "outline", size: "sm" })}
                   >
                     v{status.update.latest} available
@@ -275,14 +330,24 @@ export default function SettingsPage() {
                     up to date (v{status.update.current})
                   </Badge>
                 )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={checkUpdate}
-                  disabled={checkingUpdate}
-                >
-                  {checkingUpdate ? "Checking…" : "Check now"}
-                </Button>
+                {status?.update?.available ? (
+                  <Button
+                    size="sm"
+                    onClick={installUpdate}
+                    disabled={installing || status.installing}
+                  >
+                    {installing || status.installing ? "Installing…" : "Install now"}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={checkUpdate}
+                    disabled={checkingUpdate}
+                  >
+                    {checkingUpdate ? "Checking…" : "Check now"}
+                  </Button>
+                )}
               </div>
             </div>
             {updateResult && (
@@ -301,8 +366,10 @@ export default function SettingsPage() {
             <p className="text-xs text-muted-foreground">
               The startup check and the tray menu’s “Check for updates” contact only
               api.github.com to compare the newest published tag against the running
-              version — nothing is downloaded or installed automatically. Use the
-              tray menu’s download action or the button above to get the zip.
+              version. Installing is always your click — never automatic: the official
+              installer (tools/install.ps1, the README one-liner) is downloaded and run,
+              the daemon stops while the exes are replaced and comes back on this
+              address; a transcript is kept in update.log in the config folder.
             </p>
           </CardContent>
         </Card>

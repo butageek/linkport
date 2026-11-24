@@ -91,6 +91,9 @@ export interface Status {
   browsers_count: number;
   /** Null until the first check (startup or tray) completes. */
   update?: UpdateInfo | null;
+  /** True while the in-place installer is running (the daemon is about to
+   *  stop and come back on the same port). */
+  installing: boolean;
 }
 
 export interface DiscoveredBrowser {

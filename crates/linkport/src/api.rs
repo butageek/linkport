@@ -30,6 +30,7 @@ pub async fn status(State(state): State<AppState>) -> Json<Value> {
         "rules_count": cfg.rules.len(),
         "browsers_count": cfg.browsers.len(),
         "update": update,
+        "installing": crate::update::is_installing(),
     }))
 }
 
@@ -162,6 +163,24 @@ pub async fn check_update(State(state): State<AppState>) -> Json<Value> {
     #[cfg(windows)]
     crate::tray::notify_update_checked();
     Json(json!({ "ok": true, "update": result }))
+}
+
+/// Start the in-place upgrade (Settings > "Install now"; the tray's install
+/// item): the official installer is spawned, stops this daemon at its
+/// replace step and relaunches it — see `update::install_in_background`.
+pub async fn install_update(State(state): State<AppState>) -> Json<Value> {
+    match crate::update::install_in_background(&state) {
+        Ok(()) => Json(json!({ "ok": true })),
+        Err(detail) => Json(json!({ "ok": false, "detail": detail })),
+    }
+}
+
+/// Graceful shutdown — the tray's Quit, over HTTP, so `linkport-cli stop`
+/// (and the installer behind it) can end the daemon cleanly instead of
+/// leaving a ghost tray icon behind a killed process.
+pub async fn quit(State(state): State<AppState>) -> Json<Value> {
+    let _ = state.quit.send(true);
+    Json(json!({ "ok": true }))
 }
 
 #[cfg(test)]

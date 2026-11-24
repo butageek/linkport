@@ -30,6 +30,13 @@ pub fn pause_flag_path() -> PathBuf {
     config_dir().join("paused.flag")
 }
 
+/// Transcript of the last in-place update started by the daemon (the
+/// installer's output); the tray points here when an update did not
+/// complete.
+pub fn update_log_path() -> PathBuf {
+    config_dir().join("update.log")
+}
+
 pub fn is_paused() -> bool {
     pause_flag_path().exists()
 }

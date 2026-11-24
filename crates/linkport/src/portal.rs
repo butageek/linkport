@@ -26,6 +26,10 @@ pub struct AppState {
     /// Result of the latest update check (startup or tray), shared with
     /// the API status endpoint and the tray menu. `None` = not checked yet.
     pub update: Arc<Mutex<Option<crate::update::UpdateCheck>>>,
+    /// Shutdown signal: `true` = quit (tray Quit/Restart, `/api/quit` from
+    /// `linkport-cli stop`). `serve()` holds the receiver; every clone may
+    /// send.
+    pub quit: tokio::sync::watch::Sender<bool>,
 }
 
 impl AppState {
@@ -34,6 +38,7 @@ impl AppState {
             token,
             port,
             update: Arc::new(Mutex::new(None)),
+            quit: tokio::sync::watch::channel(false).0,
         }
     }
 
@@ -79,6 +84,8 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
             .route("/api/register", post(api::register))
             .route("/api/unregister", post(api::unregister))
             .route("/api/update/check", post(api::check_update))
+            .route("/api/update/install", post(api::install_update))
+            .route("/api/quit", post(api::quit))
             .with_state(state.clone())
             .route_layer(middleware::from_fn_with_state(state.clone(), auth));
 
@@ -112,13 +119,12 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
             open_portal_url(&state);
         }
 
-        // System tray presence (Windows). Quit in the tray menu sends on this
-        // watch channel, gracefully shutting the HTTP server down.
-        let (quit_tx, quit_rx) = tokio::sync::watch::channel(false);
+        // System tray presence (Windows). Quit in the tray menu — or
+        // `/api/quit` from `linkport-cli stop` — sends on the state's watch
+        // channel, gracefully shutting the HTTP server down.
+        let mut quit_rx = state.quit.subscribe();
         #[cfg(windows)]
-        let tray = crate::tray::spawn(state.clone(), quit_tx.clone());
-        #[cfg(not(windows))]
-        let _ = quit_tx;
+        let tray = crate::tray::spawn(state.clone());
 
         // Update check at startup (config-gated; the tray's manual check
         // always works). Runs off the async runtime — a slow or offline
@@ -162,8 +168,7 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
 
         axum::serve(listener, app)
             .with_graceful_shutdown(async move {
-                let mut rx = quit_rx;
-                let _ = rx.changed().await;
+                let _ = quit_rx.changed().await;
             })
             .await
             .context("portal server error")?;
@@ -177,6 +182,62 @@ pub fn serve(port_override: Option<u16>, open_browser: bool) -> Result<()> {
 /// The tokenized portal URL (opens straight into the dashboard, no gate).
 pub fn portal_url_string(state: &AppState) -> String {
     format!("http://127.0.0.1:{}/?token={}", state.port, state.token)
+}
+
+/// Outcome of [`request_quit`].
+#[derive(Debug, PartialEq, Eq)]
+pub enum QuitOutcome {
+    /// A daemon was listening and has shut down its listener.
+    Stopped,
+    /// Nothing listens on the portal port.
+    NotRunning,
+}
+
+/// Ask the running daemon to quit gracefully — the tray's Quit, over HTTP
+/// — from another process (`linkport-cli stop`, which the installer runs
+/// before replacing the exes). `NotRunning` when nothing listens; an
+/// error when a daemon listens but does not go away.
+pub fn request_quit() -> Result<QuitOutcome> {
+    let port = paths::load_or_default().portal.port;
+    request_quit_at(
+        SocketAddr::from(([127, 0, 0, 1], port)),
+        &paths::token_path(),
+    )
+}
+
+/// [`request_quit`] against an explicit listener and token file (so the
+/// client logic is testable off the real daemon): POST `/api/quit` with the
+/// bearer token, then wait for the listener to go away.
+fn request_quit_at(addr: SocketAddr, token_path: &std::path::Path) -> Result<QuitOutcome> {
+    if std::net::TcpStream::connect(addr).is_err() {
+        return Ok(QuitOutcome::NotRunning);
+    }
+    let token = std::fs::read_to_string(token_path).with_context(|| {
+        format!(
+            "a daemon listens on {addr} but {} holds no token",
+            token_path.display()
+        )
+    })?;
+    match ureq::post(&format!("http://{addr}/api/quit"))
+        .set("Authorization", &format!("Bearer {}", token.trim()))
+        .call()
+    {
+        Ok(_) => {}
+        Err(ureq::Error::Status(code, _)) => {
+            anyhow::bail!("the daemon answered {code} to the stop request")
+        }
+        Err(e) => anyhow::bail!("cannot reach the daemon: {e}"),
+    }
+    // The handler answers first and shuts down after; wait for the listener
+    // to disappear so the caller knows the port is free.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::net::TcpStream::connect(addr).is_ok() {
+        if std::time::Instant::now() > deadline {
+            anyhow::bail!("the daemon on {addr} is still listening 5s after the stop request");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    Ok(QuitOutcome::Stopped)
 }
 
 /// Self-heal the Windows integration after the install moved (the release
@@ -398,4 +459,75 @@ fn asset_response(path: &str, file: &rust_embed::EmbeddedFile) -> Response {
         .header(header::CONTENT_TYPE, mime)
         .body(axum::body::Body::from(file.data.clone()))
         .unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+
+    /// One token file per test: the tests run concurrently and one of them
+    /// deletes its file.
+    fn token_file(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("linkport-token-{name}-{}.txt", std::process::id()))
+    }
+
+    /// Accept connections until one carries a request, answer it 200 and
+    /// go away — the shape of a daemon that quits on `/api/quit`. The
+    /// client's liveness probe connects first and sends nothing.
+    fn fake_daemon(token_path: &std::path::Path) -> (SocketAddr, std::thread::JoinHandle<String>) {
+        std::fs::write(token_path, "test-token\n").unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            let mut request = String::new();
+            for stream in listener.incoming() {
+                let mut stream = stream.unwrap();
+                let mut buf = [0u8; 4096];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                if n == 0 {
+                    continue; // the probe: connected and closed
+                }
+                request = String::from_utf8_lossy(&buf[..n]).to_string();
+                stream
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}",
+                    )
+                    .unwrap();
+                break;
+            }
+            drop(listener); // the daemon goes away
+            request
+        });
+        (addr, handle)
+    }
+
+    #[test]
+    fn request_quit_without_a_daemon_is_not_running() {
+        // An ephemeral port we just released: nothing listens there.
+        let addr = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap()
+        };
+        let token = token_file("without");
+        let _ = std::fs::remove_file(&token);
+        assert_eq!(
+            request_quit_at(addr, &token).unwrap(),
+            QuitOutcome::NotRunning
+        );
+    }
+
+    #[test]
+    fn request_quit_sends_the_bearer_token_and_waits_for_the_listener() {
+        let token = token_file("with");
+        let (addr, server) = fake_daemon(&token);
+        assert_eq!(request_quit_at(addr, &token).unwrap(), QuitOutcome::Stopped);
+        let request = server.join().unwrap();
+        assert!(request.starts_with("POST /api/quit "), "{request}");
+        assert!(
+            request.contains("Authorization: Bearer test-token"),
+            "{request}"
+        );
+        let _ = std::fs::remove_file(&token);
+    }
 }

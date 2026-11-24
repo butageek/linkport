@@ -3,13 +3,14 @@
 //! Shows a tray icon while the daemon (`linkport.exe serve`) runs:
 //! - left click      → open the web portal
 //! - right click     → menu: Open portal / Start-at-login toggle /
-//!   Pause-routing toggle / Check-for-updates / Version / Portal URL /
-//!   Restart / Quit
+//!   Pause-routing toggle / Check-for-updates (→ Install update) / Version /
+//!   Portal URL / Restart / Quit
 //!
 //! Toggles mutate Windows/user state (Run registry key, pause flag file) and
 //! are performed on this thread (menu items are not `Send`), driven by
 //! `WM_APP` messages posted from the menu-event thread. Quit performs a
-//! graceful axum shutdown via the watch channel, then posts WM_QUIT;
+//! graceful axum shutdown via the state's watch channel (the same signal
+//! `/api/quit` sends for `linkport-cli stop`), then posts WM_QUIT;
 //! Restart does the same and additionally asks the exiting process to
 //! respawn a fresh daemon (see `restart_requested`).
 
@@ -17,7 +18,6 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
-use tokio::sync::watch::Sender as WatchSender;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
@@ -41,11 +41,25 @@ const WM_TRAY_CMD: u32 = 0x8000 + 1;
 const CMD_TOGGLE_AUTOSTART: usize = 1;
 const CMD_TOGGLE_PAUSE: usize = 2;
 const CMD_UPDATE_CHECKED: usize = 3;
+const CMD_UPDATE_INSTALLING: usize = 4;
+const CMD_UPDATE_FAILED: usize = 5;
 
 /// Tell the tray thread an update check finished and the menu should
 /// re-read the shared result (no-op when no tray thread is running).
 pub fn notify_update_checked() {
     post_cmd(CMD_UPDATE_CHECKED);
+}
+
+/// The installer is running: show that, and disable the item so a second
+/// click cannot spawn a second installer.
+pub fn notify_update_installing() {
+    post_cmd(CMD_UPDATE_INSTALLING);
+}
+
+/// The installer exited without reaching its replace step: re-enable the
+/// item and point the user at `update.log`.
+pub fn notify_update_install_failed() {
+    post_cmd(CMD_UPDATE_FAILED);
 }
 
 pub struct TrayHandle {
@@ -54,11 +68,11 @@ pub struct TrayHandle {
 
 /// Spawn the tray thread. Never panics; on failure the daemon simply runs
 /// without a tray icon (the error is printed to stderr).
-pub fn spawn(state: AppState, quit: WatchSender<bool>) -> TrayHandle {
+pub fn spawn(state: AppState) -> TrayHandle {
     let thread = std::thread::Builder::new()
         .name("linkport-tray".into())
         .spawn(move || {
-            if let Err(e) = run(state, quit) {
+            if let Err(e) = run(state) {
                 eprintln!("linkport: tray unavailable: {e:#}");
             }
         })
@@ -75,7 +89,7 @@ impl TrayHandle {
     }
 }
 
-fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
+fn run(state: AppState) -> anyhow::Result<()> {
     use windows_sys::Win32::System::Threading::GetCurrentThreadId;
     unsafe {
         TRAY_THREAD_ID.store(GetCurrentThreadId(), Ordering::SeqCst);
@@ -159,7 +173,6 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
     // Menu events (right-click menu). Item mutation must happen on the tray
     // thread, so toggles are forwarded as WM_APP commands.
     let menu_state = state.clone();
-    let menu_quit = quit.clone();
     std::thread::spawn(move || {
         while let Ok(ev) = MenuEvent::receiver().recv() {
             match ev.id().as_ref() {
@@ -175,17 +188,26 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
                 "autostart" => post_cmd(CMD_TOGGLE_AUTOSTART),
                 "pause" => post_cmd(CMD_TOGGLE_PAUSE),
                 "upd_action" => {
-                    // Network-bound: keep the menu-event loop responsive.
-                    let st = menu_state.clone();
-                    std::thread::spawn(move || check_for_updates(st));
+                    // With an update known, the click means "install it": the
+                    // installer stops this daemon at its replace step and
+                    // relaunches it. Otherwise run a check now (network-bound:
+                    // keep the menu-event loop responsive).
+                    if menu_state.snapshot_update().is_some_and(|c| c.available) {
+                        if let Err(e) = crate::update::install_in_background(&menu_state) {
+                            eprintln!("linkport: {e}");
+                        }
+                    } else {
+                        let st = menu_state.clone();
+                        std::thread::spawn(move || check_for_updates(st));
+                    }
                 }
                 "restart" => {
                     RESTART_REQUESTED.store(true, Ordering::SeqCst);
-                    let _ = menu_quit.send(true);
+                    let _ = menu_state.quit.send(true);
                     post_quit();
                 }
                 "quit" => {
-                    let _ = menu_quit.send(true);
+                    let _ = menu_state.quit.send(true);
                     post_quit();
                 }
                 _ => {}
@@ -224,6 +246,25 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
                 CMD_TOGGLE_AUTOSTART => toggle_autostart(&autostart),
                 CMD_TOGGLE_PAUSE => toggle_pause(&pause, &tray),
                 CMD_UPDATE_CHECKED => refresh_update_items(&upd_action, &upd_status, &state),
+                CMD_UPDATE_INSTALLING => {
+                    let checked = state.snapshot_update();
+                    let (action, status) = crate::update::tray_installing_text(checked.as_ref());
+                    let _ = upd_action.set_text(action);
+                    let _ = upd_action.set_enabled(false);
+                    let _ = upd_status.set_text(status);
+                    let _ = tray.set_tooltip(Some(format!(
+                        "Linkport {} — installing update…",
+                        env!("CARGO_PKG_VERSION")
+                    )));
+                }
+                CMD_UPDATE_FAILED => {
+                    let checked = state.snapshot_update();
+                    let (action, status) = crate::update::tray_failed_text(checked.as_ref());
+                    let _ = upd_action.set_text(action);
+                    let _ = upd_action.set_enabled(true);
+                    let _ = upd_status.set_text(status);
+                    let _ = tray.set_tooltip(Some(tooltip_text(crate::paths::is_paused())));
+                }
                 _ => {}
             }
             continue;
@@ -237,21 +278,10 @@ fn run(state: AppState, quit: WatchSender<bool>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Manual update action from the menu. When an update is already known,
-/// the click means "take me there" — the release page opens through the
-/// normal routing (rules apply, the open is logged like any link).
-/// Otherwise run a check now, publish it to the shared state and let the
-/// tray thread refresh the menu text.
+/// Run a check now, publish it to the shared state and let the tray thread
+/// re-text the menu (the item then reads "Install update v…" — installing
+/// is the user's next click, never automatic).
 fn check_for_updates(state: AppState) {
-    let known_url = state
-        .update
-        .lock()
-        .ok()
-        .and_then(|g| g.as_ref().filter(|c| c.available).map(|c| c.url.clone()));
-    if let Some(url) = known_url {
-        let _ = crate::open::open_url(&url);
-        return;
-    }
     let result = crate::update::check();
     if result.available {
         println!(

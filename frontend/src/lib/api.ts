@@ -60,4 +60,10 @@ export const api = {
     call<{ ok: boolean; update: UpdateInfo }>("/api/update/check", {
       method: "POST",
     }),
+  /** Spawn the installer: the daemon stops at its replace step and comes
+   *  back on the same port a few seconds later. */
+  installUpdate: () =>
+    call<{ ok: boolean; detail?: string }>("/api/update/install", {
+      method: "POST",
+    }),
 };

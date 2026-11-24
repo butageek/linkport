@@ -41,6 +41,9 @@ enum Commands {
     Browsers,
     /// Dry-run a URL through the rules and print the decision trace.
     Test { url: String },
+    /// Ask the running daemon to quit gracefully (what the tray's Quit
+    /// does). No-op when none is running.
+    Stop,
     /// Print the portal URL including the auth token.
     PortalUrl,
 }
@@ -73,6 +76,10 @@ fn main() -> Result<()> {
         }
         Commands::Browsers => linkport::open::list_browsers()?,
         Commands::Test { url } => linkport::open::test_url(&url)?,
+        Commands::Stop => match linkport::portal::request_quit()? {
+            linkport::portal::QuitOutcome::Stopped => println!("Linkport daemon stopped."),
+            linkport::portal::QuitOutcome::NotRunning => println!("No Linkport daemon is running."),
+        },
         Commands::PortalUrl => {
             let token = linkport::paths::ensure_token()?;
             let port = linkport::paths::load_or_default().portal.port;
